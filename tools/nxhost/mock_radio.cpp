@@ -48,7 +48,7 @@ bool        timeOk(){ return mock::timeOk; }
 bool        weatherHave(){ return weather; }
 float       weatherTemp(){ return temp; }
 uint8_t     weatherIcon(){ return wicon; }
-int         rssi(){ return mock::rssi; }
+int         rssi(){ const char* e = getenv("NX_RSSI"); return e ? atoi(e) : mock::rssi; }
 void        bands(float* out, uint8_t n){ for(uint8_t i = 0; i < n; i++) out[i] = mock::bands[i % 32]; }
 const char* version(){ return "0.1.0"; }
 bool        otaAvailable(){ return otaAvail; }
@@ -88,6 +88,7 @@ void        setBtMode(bool on){ s_bt = on; }
 static uint8_t s_br = 89;
 uint8_t     brightness(){ return s_br; }
 void        setBrightness(uint8_t v){ s_br = v; }
+void        saveLater(){}
 static bool s_as = true, s_ai = true;
 bool        autostart(){ return s_as; }
 void        setAutostart(bool on){ s_as = on; }

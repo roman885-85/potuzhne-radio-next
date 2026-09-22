@@ -319,6 +319,10 @@ public:
     bool     connecttoFS(fs::FS &fs, const char* path, uint32_t resumeFilePos = 0);
     bool     connecttospeech(const char* speech, const char* lang);
     bool     isRunning() {return m_f_running;}
+    const char* codecName() {                          // ПОТУЖНЕ: кодек для картки плеєра
+      static const char* N[] = { "", "WAV", "MP3", "AAC", "M4A", "FLAC", "OGG", "OGG FLAC", "OPUS" };
+      return m_codec <= CODEC_OGG_OPUS ? N[m_codec] : "";
+    }
     uint32_t getFileSize();
     uint32_t getFilePos();
     uint32_t getAudioDataStartPos();

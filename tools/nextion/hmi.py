@@ -33,9 +33,17 @@ class Page:
     def __init__(self, proj, name):
         self.proj, self.name, self.cmds = proj, name, [{"com": "addpage", "pagename": name}]
 
+    def _put(self, obj, cmd):
+        # Властивості й події самої сторінки — лише до першого компонента: інакше LoadFrom редактора
+        # падає з NullReferenceException (перевірено: подія сторінки після таймера).
+        if obj == self.name:
+            for i, c in enumerate(self.cmds):
+                if c["com"] == "addobj": self.cmds.insert(i, cmd); return
+        self.cmds.append(cmd)
+
     def set(self, obj, **atts):
         for k, v in atts.items():
-            self.cmds.append({"com": "setatt", "objname": obj, "attname": k, "attval": str(v)})
+            self._put(obj, {"com": "setatt", "objname": obj, "attname": k, "attval": str(v)})
         return self
 
     def add(self, kind, name, **atts):
@@ -43,7 +51,7 @@ class Page:
         return self.set(name, **atts)
 
     def event(self, obj, ev, code):
-        self.cmds.append({"com": "setevent", "objname": obj, "eventname": ev, "eventcode": code})
+        self._put(obj, {"com": "setevent", "objname": obj, "eventname": ev, "eventcode": code})
         return self
 
 

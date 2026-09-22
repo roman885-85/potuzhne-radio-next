@@ -321,11 +321,6 @@ bool _getWeather() {
         if(!result) return;
 
         #ifdef USE_NEXTION
-          nextion.putcmdf("press_txt.txt=\"%dmm\"", press);
-          nextion.putcmdf("hum_txt.txt=\"%d%%\"", hum);
-          char cmd[30];
-          snprintf(cmd, sizeof(cmd)-1,"temp_txt.txt=\"%.1f\"", tempf);
-          nextion.putcmd(cmd);
           int iconofset;
           if(strstr(icon,"01")!=NULL)      iconofset = 0;
           else if(strstr(icon,"02")!=NULL) iconofset = 1;
@@ -337,8 +332,7 @@ bool _getWeather() {
           else if(strstr(icon,"13")!=NULL) iconofset = 7;
           else if(strstr(icon,"50")!=NULL) iconofset = 8;
           else                             iconofset = 9;
-          nextion.putcmd("cond_img.pic", 50+iconofset);
-          nextion.weatherVisible(1);
+          nextion.weather(tempf, press, hum, (uint8_t)iconofset);   /* ПОТУЖНЕ: погода на головному екрані */
         #endif
         
         Serial.printf("##WEATHER###: description: %s, temp:%.1f C, pressure:%dmmHg, humidity:%d%%, wind: %d\n", desc, tempf, press, hum, (int)(wind_deg/22.5));

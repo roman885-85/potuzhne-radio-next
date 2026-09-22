@@ -12,7 +12,7 @@ import gfx, sprites, zifont, fonts
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 OUT = os.path.join(ROOT, 'build', 'nx', 'assets')
-SRC = os.path.join(ROOT, 'source', 'port', 'm2')
+SRC = os.path.join(ROOT, 'source', 'yoRadio', 'src', 'm2')
 KEYS = os.path.join(ROOT, 'nextion', 'sprite-keys.txt')      # ключі, які просить прошивка (поповнює nxhost)
 
 

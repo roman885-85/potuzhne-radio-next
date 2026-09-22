@@ -468,6 +468,9 @@ void Player::_flush(){
       g.pass(x0, y0, w, h);
       _draw(g);
       g.flush();
+#ifdef ARDUINO
+      vTaskDelay(1);                     /* між проходами — віддати процесор (мережа, звук) */
+#endif
     }
   }
 }

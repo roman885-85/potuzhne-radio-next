@@ -115,6 +115,9 @@ void loop() {
 #endif
   }
   loopControls();
+  #ifdef USE_NEXTION
+  nextion.loop();                 /* ПОТУЖНЕ: дії меню, будильник, таймер сну, нічна яскравість */
+  #endif
   #ifdef NETSERVER_LOOP1
   netserver.loop();
   #endif

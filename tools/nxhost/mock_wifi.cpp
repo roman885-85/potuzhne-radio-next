@@ -7,7 +7,7 @@ static const char* SC[] = { "my_home", "Vidrodzhennia_Guest", "TP-Link_4F2A", "K
 static const int8_t RS[] = { -52, -61, -70, -78, -84 };
 bool        WB::staUp(){ return true; }
 const char* WB::curSsid(){ return "my_home"; }
-int8_t      WB::rssi(){ return -52; }
+int8_t      WB::rssi(){ const char* e = getenv("NX_RSSI"); return e ? atoi(e) : -52; }
 const char* WB::ip(){ return "192.168.1.158"; }
 void        WB::scanStart(){}
 bool        WB::scanning(){ return false; }
@@ -35,3 +35,4 @@ void        WB::apUnlock(){}
 uint8_t     WB::tryState(){ const char* v = getenv("NX_TRY"); return v ? (uint8_t)atoi(v) : TRY_RUN; }
 void        WB::tryClear(){}
 }
+namespace m2 { void wbApLock(bool){} }

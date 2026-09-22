@@ -78,6 +78,7 @@ uint8_t     toneTrebleF();           /* 0..3: 2/4/8/12 кГц */
 void        setTone(int8_t bass, int8_t treble, uint8_t bassF, uint8_t trebleF);
 uint8_t     tonePreset();            /* 0..3 або 255 — своє */
 void        setTonePreset(uint8_t p);
+void        toneApply();             /* записати в VS1053 те, що збережено (після старту плеєра) */
 
 /*  ---- звуки подій (у екрані Nextion) ---- */
 void        sfxTest(uint8_t ev);     /* 0 заставка, 1 дотик, 3 мережа є, 4 мережі нема, 5 таймер, 6 будильник */
@@ -85,6 +86,7 @@ void        sfxTest(uint8_t ev);     /* 0 заставка, 1 дотик, 3 ме
 /*  ---- налаштування ядра ---- */
 uint8_t     brightness();            /* 5..100 */
 void        setBrightness(uint8_t v);
+void        saveLater();             /* головний цикл: відкладені записи налаштувань */
 bool        autostart();
 void        setAutostart(bool on);
 bool        audioInfo();

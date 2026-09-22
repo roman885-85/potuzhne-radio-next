@@ -25,7 +25,7 @@ uint32_t micros(){ return s_ms * 1000; }
 void delay(uint32_t ms){ s_ms += ms; }
 
 namespace m2 {
-int8_t  bridgeRssi(){ return -60; }
+int8_t  bridgeRssi(){ const char* e = getenv("NX_RSSI"); return e ? atoi(e) : -60; }
 bool    bridgeClock(char* out, uint8_t cap, uint8_t& minute){ snprintf(out, cap, "21:43"); minute = 43; return true; }
 void    bridgeClosed(){}
 void    bridgeFade(uint16_t){}
@@ -82,8 +82,24 @@ int main(int argc, char** argv){
     if(!strcmp(v, "-ota")){ mock::otaAvail = true; }
     if(!strcmp(v, "-long")){ strlcpy(mock::name, "Радіо Відродження — християнське радіо України", 64); strlcpy(mock::title, "Хор церкви «Відродження» - Великий Бог наш, Він творить чудеса", 160); }
     for(int w = 0; w <= 8; w++) if(!strcmp(v, (std::string("-w") + char('0' + w)).c_str())) mock::wicon = w;
+    int frames = 20;
+    if(v[0] == '-' && v[1] == 'g'){
+      /*  станція, чия адреса дає колір палітри N (crc32 & 7)  */
+      int want = atoi(v + 2);
+      for(int k = 0; k < 1000; k++){
+        snprintf(mock::url, 160, "http://stream.example.ua/radio%d", k);
+        uint32_t c = 0xFFFFFFFF; for(const char* q = mock::url; *q; q++){ c ^= (uint8_t)*q; for(int b = 0; b < 8; b++) c = (c >> 1) ^ (0xEDB88320 & (0 - (c & 1))); }
+        if(((~c) & 7) == (uint32_t)want) break;
+      }
+      if(strstr(v, "stop")){ mock::playing = false; mock::title[0] = 0; }
+    }
+    if(!strcmp(v, "-def")) mock::url[0] = 0;
+    if(!strcmp(v, "-lost")){ P.setStatus(1); frames = 80; }
+    if(!strcmp(v, "-upd")){ P.setStatus(3); frames = 80; }
+    if(!strcmp(v, "-card")){ P.setStatus(2); P.setStatusCount(128); }
+    if(!strcmp(v, "-rssi0")) mock::rssi = -127;
     P.show();
-    for(int i = 0; i < 20; i++){ P.render(); s_ms += 50; }
+    for(int i = 0; i < frames; i++){ P.render(); s_ms += 60; }
   }else if(scen[0] == 'm' && scen[1] == ':'){
     /*  m:<сторінка>[:прокрутка] — сторінка меню  */
     const char* nm = scen + 2;
@@ -96,6 +112,7 @@ int main(int argc, char** argv){
     for(auto& e : pages){ size_t l = strlen(e.n); if(!strncmp(nm, e.n, l) && (nm[l] == 0 || nm[l] == ':')){ pg = e.p; if(nm[l] == ':') sc = atoi(nm + l + 1); } }
     if(!strncmp(nm, "kbd", 3)){ static char buf[65] = "vidrodzhennia"; kbdOpen(buf, sizeof(buf), true, "Пароль: my_home", nullptr); }
     else if(!pg){ fprintf(stderr, "немає сторінки %s\n", nm); return 1; }
+    else if(getenv("NX_DEEP")){ M.open(&pgPult); for(int i = 0; i < 20; i++){ M.render(); M.loop(); s_ms += 20; } M.push(pg); }
     else M.open(pg);
     for(int i = 0; i < 40; i++){ M.render(); M.loop(); s_ms += 20; }
     if(sc){ M.setScroll(sc); for(int i = 0; i < 10; i++){ M.render(); s_ms += 20; } }

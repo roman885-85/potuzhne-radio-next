@@ -215,7 +215,7 @@ void YoExtras::_alarmLoop(uint32_t now){
 uint16_t YoExtras::pwmTarget(){
   if(_dark) return 0;
   uint32_t now = millis();
-  uint16_t day = (uint16_t)s.bright * 255 / 100;
+  uint16_t day = (uint16_t)m2::radio::brightness() * 255 / 100;
   if(_night && (int32_t)(now - _wakeUntil) >= 0) return (uint16_t)s.nightLevel * 255 / 100;
   return day;
 }

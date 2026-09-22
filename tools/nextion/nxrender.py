@@ -44,7 +44,8 @@ class Screen:
         fh, gl = self.fonts[font]
         tw = sum(gl[ord(ch)]['w'] for ch in text if ord(ch) in gl)
         pen = x + (0 if xcen == 0 else (w - tw) // 2 if xcen == 1 else w - tw)
-        top = y + (0 if ycen == 0 else (h - fh) // 2 if ycen == 1 else h - fh)
+        # як на екрані: поле нижче за шрифт — клітинка від верху поля (не зсувається вгору)
+        top = y + (0 if ycen == 0 else max(0, (h - fh) // 2) if ycen == 1 else max(0, h - fh))
         fg = gfx.from565(pco)
         for ch in text:
             g = gl.get(ord(ch))

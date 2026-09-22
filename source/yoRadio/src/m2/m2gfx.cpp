@@ -470,23 +470,18 @@ int16_t Gfx::text(int16_t x, int16_t baseline, const char* s, const GFXfont* f, 
   if(pen - pad < 0) pad = pen;
   if(pen + w + pad > 480) pad = 480 - pen - w;
   if(pad < 0) pad = 0;
-  /*  Поле по висоті — лише там, де в цьому рядку є фарба (плюс піксель), симетрично довкола
-      середини клітинки (Nextion ставить клітинку посередині поля): поле не залазить на сусідні
-      фігури — двокрапка барабана, підпис на вузькій плашці.  */
-  int16_t i0 = f->h, i1 = -1;
+  /*  Поле тексту починається з верху клітинки шрифту (Nextion не зсуває текст угору, якщо поле
+      нижче за шрифт: перевірено на екрані й у симуляторі — текст сідав нижче й обрізався).
+      Знизу поле закінчується там, де кінчається фарба літер рядка: не залазить на те, що нижче.  */
+  int16_t i1 = -1;
   for(uint16_t i = 0; i < n; i++){
     int16_t ci = cpIndex(cp[i]); if(ci < 0) continue;
     uint8_t a = f->ink[ci * 2], b = f->ink[ci * 2 + 1];
     if(a == 255) continue;
-    if(a < i0) i0 = a; if(b > i1) i1 = b;
+    if(b > i1) i1 = b;
   }
   int16_t bt = top, bh = f->h;
-  if(i1 >= i0){
-    const float mid = f->h / 2.0f;
-    float half = mid - (i0 - 1); if(i1 + 2 - mid > half) half = i1 + 2 - mid;
-    int16_t hh = (int16_t)ceilf(half);
-    if(hh * 2 < f->h){ bh = hh * 2 + (f->h & 1); bt = top + (f->h - bh) / 2; }
-  }
+  if(i1 >= 0 && i1 + 2 < bh) bh = i1 + 2;
   uint8_t pic = 255;
   uint16_t bg = under((pen + w / 2.0f) / 1.5f, (bt + bh / 2.0f) * 0.75f, &pic);
   Cmd* cm = addCmd();
@@ -557,7 +552,7 @@ void Gfx::flush(){
     switch(c.k){
       case K_FILL: snprintf(b, sizeof(b), "fill %d,%d,%d,%d,%u", c.x, c.y, c.w, c.h, c.c); break;
       case K_PIC:  snprintf(b, sizeof(b), "xpic %d,%d,%d,%d,%d,%d,%u", c.x, c.y, c.w, c.h, c.sx, c.sy, c.pic); break;
-      default:     snprintf(b, sizeof(b), "xstr %d,%d,%d,%d,%u,%u,%u,1,1,%u,\"%s\"", c.x, c.y, c.w, c.h, c.font, c.c, c.bg, c.sta, s_pool + c.str); break;
+      default:     snprintf(b, sizeof(b), "xstr %d,%d,%d,%d,%u,%u,%u,1,0,%u,\"%s\"", c.x, c.y, c.w, c.h, c.font, c.c, c.bg, c.sta, s_pool + c.str); break;
     }
     nxSink->cmd(b);
   }

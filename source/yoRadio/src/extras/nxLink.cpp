@@ -202,8 +202,9 @@ namespace {
     Job* j = (Job*)p;
     if (j->kind == 1) { runPlay(j); finish(true); delete j; vTaskDelete(NULL); return; }
     bool ok = runJob(j);
-    /*  Після заливки екран перезавантажується з новим проєктом на його власній швидкості. */
-    if (ok) { delay(3000); hSerial.updateBaudRate(NEXTION_BAUD); curBaud = NEXTION_BAUD; flushIn(); }
+    /*  Після заливки екран перезавантажується з новим проєктом — радіо теж, щоб почати з ним наново
+        (сторінки, швидкість зв'язку, повне малювання). */
+    if (ok) { delay(3000); ESP.restart(); }
     finish(ok);
     delete j;
     vTaskDelete(NULL);
@@ -260,6 +261,23 @@ namespace NxLink {
       telnet.printf(cid, startUpload(url, baud, cid) ? "##NX#\tзаливку почато\n> " : "##NX#\tне вдалося почати\n> ");
       return true;
     }
+    if (!strncmp(a, "touch ", 6)) {
+      int x = 0, y = 0; sscanf(a + 6, "%d %d", &x, &y);
+      nextion.touch(x, y);
+      telnet.printf(cid, "##NX#\tдотик %d,%d\n> ", x, y);
+      return true;
+    }
+    if (!strcmp(a, "perf")) {
+      char b[200]; nextion.perf(b, sizeof b);
+      telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
+    if (!strcmp(a, "shot")) {
+      /*  знімок: екран перемальовується, команди йдуть у консоль між ##NXC# BEGIN і END (tools/device/nxshot.py)  */
+      nextion.shot();
+      telnet.printf(cid, "##NX#\tзнімок\n> ");
+      return true;
+    }
     if (!strncmp(a, "play ", 5)) {
       telnet.printf(cid, startPlay(a + 5, cid) ? "##NX#\tнадсилаю команди\n> " : "##NX#\tне вдалося почати\n> ");
       return true;
@@ -274,7 +292,7 @@ namespace NxLink {
       telnet.printf(cid, "\n> ");
       return true;
     }
-    telnet.printf(cid, "##NX#\tкоманди: nx info | nx upload <url> [бод] | nx play <url> | nx cmd <команда> | nx status\n> ");
+    telnet.printf(cid, "##NX#\tкоманди: nx info | nx upload <url> [бод] | nx play <url> | nx shot | nx cmd <команда> | nx status\n> ");
     return true;
   }
 }

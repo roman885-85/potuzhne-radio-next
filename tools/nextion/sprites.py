@@ -21,7 +21,7 @@ K = 4 / 3
 
 
 def icon_names():
-    src = open(os.path.join(ROOT, 'source', 'port', 'm2', 'm2icons.h')).read()
+    src = open(os.path.join(ROOT, 'source', 'yoRadio', 'src', 'm2', 'm2icons.h')).read()
     body = src[src.index('enum Icon'):]
     body = body[:body.index('};')]
     names = [n[3:] for n in re.findall(r'IC_[A-Z]+', body)]

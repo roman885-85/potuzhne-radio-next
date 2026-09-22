@@ -1,619 +1,324 @@
+/*  Екран Nextion для ПОТУЖНОГО РАДІО — див. nextion.h.  */
 #include "../core/options.h"
-#if DSP_MODEL==DSP_DUMMY
-#define DUMMYDISPLAY
-#endif
 #if NEXTION_RX!=255 && NEXTION_TX!=255
 #include "nextion.h"
 #include "../core/config.h"
-
 #include "../core/player.h"
-#include "../core/controls.h"
-#include "../core/netserver.h"
 #include "../core/network.h"
-#include "../core/timekeeper.h"
-#include "tools/l10n.h"
+#include "../m2/m2ui.h"
+#include "../m2/m2pages.h"
+#include "../m2/m2player.h"
+#include "../m2/m2bridge.h"
+#include "../m2/m2radio.h"
+#include "../extras/yoExtras.h"
 
-#ifndef CORE_STACK_SIZE
-  #define CORE_STACK_SIZE  1024*3
-#endif
+HardwareSerial hSerial(1);            /* UART1 — екран (extras/nxLink теж ним користується) */
 
-HardwareSerial hSerial(1); // use UART1
+namespace nxw { extern volatile bool have; extern volatile float temp; extern volatile int press, hum; extern volatile uint8_t icon; }
+namespace nxq { extern volatile uint8_t open; }
 
-Nextion::Nextion() {
+namespace {
+  /*  ---------- зв'язок ----------
+      Усе з UART екрана робить лише задача екрана: команди з інших задач (яскравість із ядра,
+      сон) кладуться в чергу. Підтвердження (bkcmd=3) тримають ритм: у дорозі не більше WINDOW
+      команд. Екран перезавантажився (сам шле 0x88) чи мовчить — підтвердження вмикаються знову,
+      а поки їх нема, команди йдуть із паузою за довжиною (не більше, ніж екран устигає прийняти).  */
+  const uint8_t WINDOW = 6;           /* команд у дорозі без підтвердження */
+  volatile uint8_t inflight = 0;
+  uint32_t errors = 0; uint8_t lastErr = 0;
+  uint8_t  misses = 0;                /* скільки разів поспіль підтвердження не прийшло */
+  bool     needBk = true;             /* треба (знову) ввімкнути bkcmd=3 */
+  QueueHandle_t extq = nullptr;       /* команди з інших задач */
+  struct ExtCmd { char s[64]; };
+  /*  розбір того, що шле екран: відповіді (…FF FF FF) і дотики (~ тип xL xH yL yH)  */
+  enum : uint8_t { RX_IDLE, RX_TOUCH, RX_REPLY };
+  uint8_t rst = RX_IDLE, rbuf[8], rlen = 0, ffs = 0;
+  struct Touch { uint8_t kind; int16_t x, y; };
+  Touch tq[16]; volatile uint8_t tqh = 0, tqt = 0;
+  volatile bool mirror = false;       /* nx shot: копія команд у консоль */
+  uint32_t pfCmds = 0, pfBytes = 0, pfBusyUs = 0, pfMaxUs = 0, pfT0 = 0;   /* nx perf */
+  volatile bool shotReq = false;
+  int16_t fadeLevel = -1;             /* затемнення меню (0..255), -1 — ні */
+  int16_t lastDim = -1;
+  uint32_t splashUntil = 0;           /* показ заставки на прохання (кнопка в меню) */
 
-}
-
-void nextionCore0( void * pvParameters ){
-  delay(500);
-  while(true){
-    if(!nextion.paused) nextion.loop();
-    vTaskDelay(5);
-  }
-  vTaskDelete( NULL );
-}
-
-void Nextion::begin(bool dummy) {
-  _dummyDisplay=dummy;
-  mode=LOST;
-  hSerial.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
-  if (!hSerial) {
-    Serial.println("Invalid HardwareSerial pin configuration, check config");
-    while (1) {
-      delay (1000);
+  void rxByte(uint8_t c){
+    switch(rst){
+      case RX_IDLE:
+        if(c == 0x7E){ rst = RX_TOUCH; rlen = 0; }
+        else if(c == 0xFF){ /* хвіст невідомої відповіді */ }
+        else { rst = RX_REPLY; rbuf[0] = c; rlen = 1; ffs = 0; }
+        break;
+      case RX_TOUCH:
+        rbuf[rlen++] = c;
+        if(rlen == 5){
+          uint8_t n = (tqh + 1) % 16;
+          if(n != tqt){ tq[tqh].kind = rbuf[0]; tq[tqh].x = rbuf[1] | (rbuf[2] << 8); tq[tqh].y = rbuf[3] | (rbuf[4] << 8); tqh = n; }
+          rst = RX_IDLE;
+        }
+        break;
+      case RX_REPLY:
+        if(c == 0xFF){
+          if(++ffs == 3){
+            if(rbuf[0] == 0x88 || (rbuf[0] == 0x00 && rlen >= 3)){ needBk = true; inflight = 0; }   /* екран щойно стартував */
+            else {
+              if(inflight) inflight--;
+              misses = 0;
+              if(rbuf[0] != 0x01){ errors++; lastErr = rbuf[0]; }
+            }
+            rst = RX_IDLE;
+          }
+        }else{ ffs = 0; if(rlen < sizeof(rbuf)) rbuf[rlen++] = c; }
+        break;
     }
   }
-  rx_pos = 0;
-  _volInside=false;
-  snprintf(_espcoreversion, sizeof(_espcoreversion) - 1, "%d.%d.%d", ESP_ARDUINO_VERSION_MAJOR, ESP_ARDUINO_VERSION_MINOR, ESP_ARDUINO_VERSION_PATCH);
-  putcmd("");
-  putcmd("rest");
-  delay(300);
-  putcmd("");
-  putcmd("bkcmd=0");
-//  putcmd("page boot");
-  
-  _displayQueue = xQueueCreate( 10, sizeof( requestParams_t ) );
-  if(dummy) {
-    xTaskCreatePinnedToCore(nextionCore0, "TaskCore0", CORE_STACK_SIZE, NULL, 4, &_TaskCore0, !xPortGetCoreID());
+
+  void pump(){ while(hSerial.available()) rxByte((uint8_t)hSerial.read()); }
+
+  void rawSend(const char* s){ hSerial.print(s); hSerial.write(0xFF); hSerial.write(0xFF); hSerial.write(0xFF); }
+
+  struct SerialSink : m2::NxSink {
+    void cmd(const char* s) override {
+      if(nextion.paused) return;
+      if(needBk){ needBk = false; rawSend("bkcmd=3"); inflight++; }
+      uint32_t t = millis();
+      while(inflight >= WINDOW){
+        pump();
+        if(inflight < WINDOW) break;
+        if(millis() - t > 60){
+          /*  підтверджень нема: скинути лічильник, а після трьох разів поспіль — знову попросити  */
+          inflight = 0; errors++; lastErr = 0xEE;
+          if(++misses >= 3){ misses = 0; needBk = true; }
+          break;
+        }
+        vTaskDelay(1);
+      }
+      rawSend(s);
+      inflight++;
+      pfCmds++; pfBytes += strlen(s) + 3;
+      if(mirror){ Serial.print("##NXC#\t"); Serial.println(s); }
+    }
+    void sync() override {
+      uint32_t t = millis();
+      while(inflight && millis() - t < 200){ pump(); vTaskDelay(1); }
+      inflight = 0;
+    }
+  } sink;
+
+  /*  з інших задач — у чергу  */
+  void extSend(const char* s){
+    if(!extq) return;
+    ExtCmd c; strlcpy(c.s, s, sizeof(c.s));
+    xQueueSend(extq, &c, 0);
   }
+  void drainExt(){
+    ExtCmd c;
+    while(extq && xQueueReceive(extq, &c, 0) == pdTRUE) sink.cmd(c.s);
+  }
+
+  /*  ---------- підсвітка ---------- */
+  void applyDim(){
+    int16_t lv = fadeLevel >= 0 ? fadeLevel : (int16_t)extras.pwmTarget();
+    int16_t d = (lv * 100 + 127) / 255;
+    if(d != lastDim){ lastDim = d; char b[16]; snprintf(b, sizeof(b), "dim=%d", d); sink.cmd(b); }
+  }
+
+  /*  ---------- дотики ----------
+      Меню дотики кладе в свою чергу (обробляє задача екрана, дії — головний цикл). Плеєр,
+      як і в ПОТУЖНОГО, отримує дотики в головному циклі: його дії (картка пам'яті, пауза,
+      обране) — важкі звертання до ядра, їм не місце в задачі екрана на іншому ядрі.  */
+  bool swallow = false;
+  Touch ptq[16]; volatile uint8_t ptqh = 0, ptqt = 0;   /* дотики плеєра → головний цикл */
+  void handleTouch(const Touch& t){
+    const int16_t vx = (int16_t)lroundf(t.x / 1.5f), vy = (int16_t)lroundf(t.y * 0.75f);
+    if(t.kind == 'P'){
+      if(extras.touchWake()){ swallow = true; lastDim = -1; return; }   /* темний екран — дотик лише будить */
+      swallow = false;
+    }else if(swallow){ if(t.kind == 'R') swallow = false; return; }
+    if(m2::M.active()){
+      if(t.kind == 'P') m2::M.onPress(vx, vy);
+      else if(t.kind == 'M') m2::M.onDrag(vx, vy);
+      else m2::M.onRelease(vx, vy);
+      return;
+    }
+    uint8_t n = (ptqh + 1) % 16;
+    if(t.kind == 'M'){                             /* кілька рухів підряд — досить останнього */
+      uint8_t pr = (ptqh + 15) % 16;
+      if(ptqh != ptqt && ptq[pr].kind == 'M'){ ptq[pr].x = vx; ptq[pr].y = vy; return; }
+    }
+    if(n != ptqt){ ptq[ptqh] = { t.kind, vx, vy }; ptqh = n; }
+  }
+
+  /*  ---------- задача екрана (ядро 0) ---------- */
+  void nxTask(void*){
+    for(;;){
+      if(nextion.paused){ vTaskDelay(pdMS_TO_TICKS(20)); continue; }
+      pump();
+      drainExt();
+      while(tqt != tqh){ Touch t = tq[tqt]; tqt = (tqt + 1) % 16; if(nextion.started()) handleTouch(t); }
+      if(nextion.started()){
+        if(splashUntil && (int32_t)(millis() - splashUntil) >= 0){ splashUntil = 0; sink.cmd("page ui"); m2::P.show(); }
+        if(!splashUntil){
+          if(shotReq){
+            shotReq = false;
+            Serial.println("##NXC#\tBEGIN");
+            mirror = true;
+            if(m2::M.active()) m2::M.invalAll(); else m2::P.invalAll();
+          }
+          const uint32_t u0 = micros();
+          if(m2::M.active() || m2::M.fading()) m2::M.render(); else m2::P.render();
+          const uint32_t du = micros() - u0; pfBusyUs += du; if(du > pfMaxUs) pfMaxUs = du;
+          if(mirror){ mirror = false; Serial.println("##NXC#\tEND"); }
+          applyDim();
+        }
+      }
+      vTaskDelay(pdMS_TO_TICKS(5));
+    }
+  }
+
+  bool handshake(){
+    const uint32_t bauds[] = { NEXTION_BAUD, 115200, 9600 };
+    for(uint32_t b : bauds){
+      hSerial.updateBaudRate(b); delay(20);
+      while(hSerial.available()) hSerial.read();
+      rawSend(""); rawSend("bkcmd=0");
+      delay(40);
+      while(hSerial.available()) hSerial.read();
+      rawSend("connect");
+      char r[80]; uint8_t n = 0, ff = 0; uint32_t t = millis();
+      while(millis() - t < 400){
+        if(!hSerial.available()){ delay(2); continue; }
+        int c = hSerial.read();
+        if(c == 0xFF){ if(++ff == 3) break; continue; }
+        ff = 0; if(n < sizeof(r) - 1) r[n++] = (char)c;
+      }
+      r[n] = 0;
+      if(strstr(r, "comok")){
+        if(b != NEXTION_BAUD){                         /* старий проєкт на іншій швидкості — перевести */
+          char cmd[24]; snprintf(cmd, sizeof(cmd), "baud=%u", (unsigned)NEXTION_BAUD);
+          rawSend(cmd); hSerial.flush(); delay(60);
+          hSerial.updateBaudRate(NEXTION_BAUD); delay(30);
+        }
+        Serial.printf("##[BOOT]#\tNextion: %s\n", strstr(r, "comok"));
+        return true;
+      }
+    }
+    hSerial.updateBaudRate(NEXTION_BAUD);
+    Serial.println("##[BOOT]#\tNextion не відповідає");
+    return false;
+  }
+}
+
+/*  для m2menu.cpp  */
+void nxFade(uint16_t level){ fadeLevel = level == 0xFFFF ? -1 : (int16_t)(level > 255 ? 255 : level); applyDim(); }
+void nxSplashDemo(uint32_t ms){ extSend("page boot"); splashUntil = millis() + ms; if(!splashUntil) splashUntil = 1; }
+
+Nextion::Nextion(){}
+
+void Nextion::begin(bool dummy){
+  (void)dummy;
+  mode = LOST;
+  hSerial.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
+  handshake();
+  rawSend("bkcmd=3");                                   /* кожна команда відповідає: так тримаємо ритм */
+  delay(20);
+  while(hSerial.available()) hSerial.read();
+  needBk = false;
+  extq = xQueueCreate(12, sizeof(ExtCmd));
+  extras.begin();
+  m2::nxSink = &sink;
+  if(extras.s.splashOff){ rawSend("page ui"); }
+  /*  пріоритет 1 (як головний цикл): екрану не можна відбирати час у мережі й звуку  */
+  xTaskCreatePinnedToCore(nxTask, "nxui", 6144, NULL, 1, NULL, 0);
 }
 
 void Nextion::start(){
-  Serial.print("##[BOOT]#\tNextion.start\t");
-  delay(100);
-  if (network.status != CONNECTED) {
-    apScreen();
-    return;
+  if(_started) return;
+  if(network.status == SOFT_AP){ apScreen(); return; }
+  m2::radio::toneApply();
+  extSend("page ui");
+  _started = true;
+  m2::P.show();
+  lastDim = -1;
+}
+
+void Nextion::apScreen(){
+  /*  мережі нема (точка доступу): одразу Wi-Fi, виходу з нього нема, доки не підключимось  */
+  extSend("page ui");
+  _started = true;
+  m2::wbApLock(true);
+  m2::M.open(&m2::pgWifi);
+}
+
+void Nextion::loop(){
+  /*  головний цикл: дотики плеєра, дії з меню, запити на відкриття, будильник, сон, ніч  */
+  while(ptqt != ptqh){
+    Touch t = ptq[ptqt]; ptqt = (ptqt + 1) % 16;
+    if(t.kind == 'P') m2::P.onPress(t.x, t.y);
+    else if(t.kind == 'M') m2::P.onDrag(t.x, t.y);
+    else m2::P.onRelease(t.x, t.y);
   }
-#ifdef DUMMYDISPLAY
-  display.mode(PLAYER);
-  config.setTitle(LANG::const_PlReady);
+  extras.loop();
+  uint8_t o = nxq::open;
+  if(o){
+    nxq::open = 0;
+    m2::Page* pg = o == 1 ? &m2::pgPult : o == 3 ? &m2::pgFav : nullptr;
+    if(o == 2) m2::stationsRequest();
+    else if(pg){ if(m2::M.active()) m2::M.push(pg); else m2::M.open(pg); }
+  }
+  m2::M.loop();
+  m2::radio::saveLater();
+}
+
+void Nextion::putcmd(const char* cmd){
+  if(!cmd || !*cmd) return;
+  if(!strncmp(cmd, "dims=", 5) || !strncmp(cmd, "dim=", 4)){ lastDim = -1; return; }   /* яскравість веде extras */
+  extSend(cmd);
+}
+void Nextion::putcmd(const char* cmd, const char* val, uint16_t dl){ (void)cmd; (void)val; (void)dl; }
+void Nextion::putcmd(const char* cmd, int val, bool toString, uint16_t dl){ (void)cmd; (void)val; (void)toString; (void)dl; }
+void Nextion::putcmdf(const char* fmt, int val, uint16_t dl){ (void)fmt; (void)val; (void)dl; }
+
+void Nextion::putRequest(requestParams_t r){
+  switch(r.type){
+    case NEWMODE:
+      mode = (displayMode_e)r.payload;
+      display.mode(mode);                          /* ядро дивиться на display.mode() (картка, кнопки) */
+      switch(r.payload){
+        case STATIONS: m2::stationsRequest(); break;
+        case LOST:     m2::P.setStatus(1); break;
+        case SDCHANGE: m2::P.setStatus(2); break;
+        case UPDATING: m2::P.setStatus(3); break;
+        case PLAYER:   m2::P.setStatus(0); break;
+        default: break;
+      }
+      break;
+    case SDFILEINDEX: m2::P.setStatusCount(r.payload); break;
+    default: break;
+  }
+}
+
+void Nextion::sleep(){ extSend("sleep=1"); }
+void Nextion::wake(){ extSend("sleep=0"); lastDim = -1; }
+
+void Nextion::weather(float temp, int press, int hum, uint8_t icon){
+  nxw::temp = temp; nxw::press = press; nxw::hum = hum; nxw::icon = icon; nxw::have = true;
+}
+
+void Nextion::shot(){ shotReq = true; }
+
+/*  для перевірки з консолі: дотик у точку екрана Nextion (натиснув і відпустив)  */
+void Nextion::touch(int16_t x, int16_t y){
+  uint8_t n = (tqh + 1) % 16; if(n != tqt){ tq[tqh] = { 'P', x, y }; tqh = n; }
+  n = (tqh + 1) % 16; if(n != tqt){ tq[tqh] = { 'R', x, y }; tqh = n; }
+}
+
+void Nextion::perf(char* out, size_t cap){
+  uint32_t ms = millis() - pfT0; if(!ms) ms = 1;
+  snprintf(out, cap, "за %u мс: команд %u (%u байт), малювання %u мс (%u%%), найдовше %u мс, помилок %u (остання %02X), вільно %u",
+           (unsigned)ms, (unsigned)pfCmds, (unsigned)pfBytes, (unsigned)(pfBusyUs / 1000), (unsigned)(pfBusyUs / 10 / ms),
+           (unsigned)(pfMaxUs / 1000), (unsigned)errors, lastErr, (unsigned)ESP.getFreeHeap());
+  pfCmds = pfBytes = pfBusyUs = pfMaxUs = 0; pfT0 = millis();
+}
+
 #endif
-  putRequest({NEWMODE, PLAYER});
-  putRequest({NEWSTATION, 0});
-  putRequest({NEWTITLE, 0});
-  putRequest({DRAWVOL, 0});
-  Serial.println("done");
-}
-
-void Nextion::apScreen() {
-  putcmd("apscreenlock=1");
-  putcmd("page settings_wifi");
-}
-
-void Nextion::putRequest(requestParams_t request){
-  if(_displayQueue==NULL || paused) return;
-  xQueueSend(_displayQueue, &request, portMAX_DELAY);
-}
-
-#ifndef NEXTION_QUEUE_TICKS
-  #define NEXTION_QUEUE_TICKS 8
-#endif
-
-void Nextion::processQueue(){
-  if(_displayQueue==NULL) return;
-  requestParams_t request;
-  if(xQueueReceive(_displayQueue, &request, NEXTION_QUEUE_TICKS)){
-    switch (request.type){
-      case NEWMODE: swichMode((displayMode_e)request.payload); break;
-      case CLOCK: printClock(network.timeinfo); break;
-      case DSPRSSI: rssi(); break;
-      case NEWTITLE: newTitle(config.station.title); break;
-      case BOOTSTRING: {
-        char buf[50];
-        snprintf(buf, 50, LANG::bootstrFmt, config.ssids[request.payload].ssid);
-        bootString(buf);
-        break;
-      }
-      case NEWSTATION: {
-        newNameset(config.station.name);
-        bitrate(config.station.bitrate);
-        bitratePic(ICON_NA);
-        break;
-      }
-      case SHOWWEATHER:   weatherVisible(strlen(config.store.weatherkey)>0 && config.store.showweather); break;
-      case NEXTSTATION:   drawNextStationNum(request.payload); break;
-      case DRAWPLAYLIST:  drawPlaylist(request.payload); break;
-      case DRAWVOL: {
-        if(!_volInside){
-          setVol(config.store.volume, mode == VOL);
-        }
-        _volInside=false;
-        break;
-      }
-      default: break;
-    }
-  }
-#ifdef DUMMYDISPLAY
-  if(mode==VOL || mode==STATIONS || mode==NUMBERS ){
-    if (millis() - _volDelay > (mode==VOL?3000:30000)) {
-      _volDelay = millis();
-      swichMode(PLAYER);
-    }
-  }
-#endif
-}
-
-void Nextion::loop() {
-  processQueue();
-  drawVU();
-  char RxTemp;
-  char scanBuf[50];
-  int  scanDigit; (void)scanDigit;
-  static String wifisettings;
-  if (hSerial.available() > 4) {
-    RxTemp = hSerial.read();
-    if (RxTemp != '^') {
-      return;
-    }else{
-      rx_pos = 0;
-      rxbuf[rx_pos] = '\0';
-    }
-    while (hSerial.available()) {
-      RxTemp = hSerial.read();
-      if (RxTemp == '^') {
-        rx_pos = 0;
-        rxbuf[rx_pos] = '\0';
-        continue;
-      }
-      if (RxTemp != '$') {
-        rxbuf[rx_pos] = RxTemp;
-        rx_pos++;
-      } else {
-        rxbuf[rx_pos] = '\0';
-        rx_pos = 0;
-        if (sscanf(rxbuf, "page=%s", scanBuf) == 1){
-          if(strcmp(scanBuf, "player") == 0) display.putRequest(NEWMODE, PLAYER);
-          if(strcmp(scanBuf, "playlist") == 0) display.putRequest(NEWMODE, STATIONS);
-          if(strcmp(scanBuf, "info") == 0) {
-            putcmd("yoversion.txt", YOVERSION);
-            putcmd("espcore.txt", _espcoreversion);
-            putcmd("ipaddr.txt", WiFi.localIP().toString().c_str());
-            putcmd("ssid.txt", WiFi.SSID().c_str());
-            display.putRequest(NEWMODE, INFO);
-          }
-          if(strcmp(scanBuf, "eq") == 0) {
-            putcmd("t4.txt", config.store.balance, true);
-            putcmd("h0.val", config.store.balance+16);
-            putcmd("t5.txt", config.store.trebble, true);
-            putcmd("h1.val", config.store.trebble+16);
-            putcmd("t6.txt", config.store.middle, true);
-            putcmd("h2.val", config.store.middle+16);
-            putcmd("t7.txt", config.store.bass, true);
-            putcmd("h3.val", config.store.bass+16);
-            display.putRequest(NEWMODE, SETTINGS);
-          }
-          if(strcmp(scanBuf, "wifi") == 0) {
-            if(mode != WIFI){
-              char cell[10];
-              wifisettings="";
-              for(int i=0;i<config.ssidsCount;i++){
-                snprintf(cell, sizeof(cell) - 1, "t%d.txt", i*2);
-                putcmd(cell, config.ssids[i].ssid);
-                snprintf(cell, sizeof(cell) - 1, "t%d.txt", i*2+1);
-                putcmd(cell, config.ssids[i].password);
-              }
-              display.putRequest(NEWMODE, WIFI);
-            }
-          }
-          if(strcmp(scanBuf, "time") == 0) {
-            putcmdf("tzHourText.txt=\"%02d\"", config.store.tzHour);
-            putcmd("tzHour.val", config.store.tzHour);
-            putcmdf("tzMinText.txt=\"%02d\"", config.store.tzMin);
-            putcmd("tzMin.val", config.store.tzMin);
-            display.putRequest(NEWMODE, TIMEZONE);
-          }
-          if(strcmp(scanBuf, "sys") == 0) {
-            putcmd("smartstart.val", config.store.smartstart==2?0:1);
-            putcmd("audioinfo.val", config.store.audioinfo);
-            display.putRequest(NEWMODE, SETTINGS);
-          }
-        }
-        if (sscanf(rxbuf, "ctrls=%s", scanBuf) == 1){
-          if(strcmp(scanBuf, "up") == 0) {
-            display.resetQueue();
-            int p = display.currentPlItem - 1;
-            if (p < 1) p = config.playlistLength();
-            display.currentPlItem = p;
-            display.putRequest(DRAWPLAYLIST, p);
-          }
-          if(strcmp(scanBuf, "dn") == 0) {
-            display.resetQueue();
-            int p = display.currentPlItem + 1;
-            if (p > config.playlistLength()) p = 1;
-            display.currentPlItem = p;
-            display.putRequest(DRAWPLAYLIST, p);
-          }
-          if(strcmp(scanBuf, "go") == 0) {
-            display.putRequest(NEWMODE, PLAYER);
-            player.sendCommand({PR_PLAY, display.currentPlItem});
-          }
-          if(strcmp(scanBuf, "toggle") == 0) {
-            player.toggle();
-          }
-        }
-        if (sscanf(rxbuf, "vol=%d", &scanDigit) == 1){
-          _volInside = true;
-          player.sendCommand({PR_VOL, scanDigit});
-        }
-        if (sscanf(rxbuf, "balance=%d", &scanDigit) == 1){
-          config.setBalance((int8_t)scanDigit);
-        }
-        if (sscanf(rxbuf, "treble=%d", &scanDigit) == 1){
-          config.setTone(config.store.bass, config.store.middle, scanDigit);
-        }
-        if (sscanf(rxbuf, "middle=%d", &scanDigit) == 1){
-          config.setTone(config.store.bass, scanDigit, config.store.trebble);
-        }
-        if (sscanf(rxbuf, "bass=%d", &scanDigit) == 1){
-          config.setTone(scanDigit, config.store.middle, config.store.trebble);
-        }
-        if (sscanf(rxbuf, "tzhour=%d", &scanDigit) == 1){
-          config.setTimezone((int8_t)scanDigit, config.store.tzMin);
-          if(strlen(config.store.sntp1)>0 && strlen(config.store.sntp2)>0){
-            configTime(config.store.tzHour * 3600 + config.store.tzMin * 60, config.getTimezoneOffset(), config.store.sntp1, config.store.sntp2);
-          }else if(strlen(config.store.sntp1)>0){
-            configTime(config.store.tzHour * 3600 + config.store.tzMin * 60, config.getTimezoneOffset(), config.store.sntp1);
-          }
-          timekeeper.forceTimeSync = true;
-        }
-        if (sscanf(rxbuf, "tzmin=%d", &scanDigit) == 1){
-          config.setTimezone(config.store.tzHour, (int8_t)scanDigit);
-          if(strlen(config.store.sntp1)>0 && strlen(config.store.sntp2)>0){
-            configTime(config.store.tzHour * 3600 + config.store.tzMin * 60, config.getTimezoneOffset(), config.store.sntp1, config.store.sntp2);
-          }else if(strlen(config.store.sntp1)>0){
-            configTime(config.store.tzHour * 3600 + config.store.tzMin * 60, config.getTimezoneOffset(), config.store.sntp1);
-          }
-          timekeeper.forceTimeSync = true;
-        }
-        if (sscanf(rxbuf, "audioinfo=%d", &scanDigit) == 1){
-          config.saveValue(&config.store.audioinfo, static_cast<bool>(scanDigit));
-        }
-        if (sscanf(rxbuf, "smartstart=%d", &scanDigit) == 1){
-          config.saveValue(&config.store.smartstart, static_cast<uint8_t>(scanDigit==0?2:1));
-        }
-        if (sscanf(rxbuf, "addssid=%s", scanBuf) == 1){
-          wifisettings+=(String(scanBuf)+"\t");
-        }
-        if (sscanf(rxbuf, "addpass=%s", scanBuf) == 1){
-          wifisettings+=(String(scanBuf)+"\n");
-        }
-        if (sscanf(rxbuf, "wifidone=%d", &scanDigit) == 1){
-          config.saveWifiFromNextion(wifisettings.c_str());
-        }
-      }
-    }
-  }
-}
-
-void Nextion::drawVU(){
-  //if(mode!=PLAYER) return;
-  if(mode!=PLAYER && mode!=VOL) return;
-  static uint8_t measL, measR;
-  //player.getVUlevel();
-  
-  uint16_t vulevel = player.get_VUlevel((uint16_t)100);
-  
-  uint8_t L = (vulevel >> 8) & 0xFF;
-  uint8_t R = vulevel & 0xFF;
-  
-  //uint8_t L = map(player.vuLeft, 0, 255, 0, 100);
-  //uint8_t R = map(player.vuRight, 0, 255, 0, 100);
-  if(player.isRunning()){
-    measL=(L<=measL)?measL-5:L;
-    measR=(R<=measR)?measR-5:R;
-  }else{
-    if(measL>0) measL-=5;
-    if(measR>0) measR-=5;
-  }
-  if(measL>100) measL=0;
-  if(measR>100) measR=0;
-  fillVU(measL, measR);
-}
-
-void Nextion::putcmd(const char* cmd) {
-  snprintf(txbuf, sizeof(txbuf) - 1, "%s\xFF\xFF\xFF", cmd);
-  hSerial.print(txbuf);
-}
-
-void Nextion::putcmd(const char* cmd, const char* val, uint16_t dl) {
-  snprintf(txbuf, sizeof(txbuf) - 1, "%s=\"%s\"\xFF\xFF\xFF", cmd, val);
-  hSerial.print(txbuf);
-  if(dl>0) delay(dl);
-}
-
-void Nextion::putcmd(const char* cmd, int val, bool toString, uint16_t dl) {
-  if(toString){
-    snprintf(txbuf, sizeof(txbuf) - 1, "%s=\"%d\"\xFF\xFF\xFF", cmd, val);
-  }else{
-    snprintf(txbuf, sizeof(txbuf) - 1, "%s=%d\xFF\xFF\xFF", cmd, val);
-  }
-  hSerial.print(txbuf);
-  if(dl>0) delay(dl);
-}
-
-void Nextion::putcmdf(const char* fmt, int val, uint16_t dl) {
-  snprintf(txbuf, sizeof(txbuf) - 1, fmt, val);
-  hSerial.print(txbuf);
-  hSerial.print("\xFF\xFF\xFF");
-  if(dl>0) delay(dl);
-}
-
-void Nextion::bitrate(int bpm){
-  if(bpm>0){
-    putcmd("player.bitrate.txt", bpm, true);
-  }else{
-    putcmd("player.bitrate.txt=\" \"");
-  }
-}
-
-void Nextion::rssi(){
-  putcmdf("rssi.txt=\"%d dBm\"", WiFi.RSSI());
-}
-
-void Nextion::weatherVisible(uint8_t vis){
-  putcmd("weatherVisible", vis, false, 20);
-  putcmdf("vis press_img,%d", vis, 20);
-  putcmdf("vis press_txt,%d", vis, 20);
-  putcmdf("vis hum_img,%d", vis, 20);
-  putcmdf("vis hum_txt,%d", vis, 20);
-  putcmdf("vis temp_img,%d", vis, 20);
-  putcmdf("vis temp_txt,%d", vis, 20);
-  putcmdf("vis cond_img,%d", vis, 20);
-}
-
-void Nextion::bitratePic(uint8_t pic){
-  putcmd("player.bitrate.pic", pic);
-}
-
-void Nextion::audioinfo(const char* info){
-  if (strstr(info, "format is aac")  != NULL) bitratePic(ICON_AAC);
-  if (strstr(info, "format is flac") != NULL) bitratePic(ICON_FLAC);
-  if (strstr(info, "format is mp3")  != NULL) bitratePic(ICON_MP3);
-  if (strstr(info, "format is wav")  != NULL) bitratePic(ICON_WAV);
-}
-
-void Nextion::bootString(const char* bs) {
-  char buf[50] = { 0 };
-  strlcpy(buf, bs, 50);
-  putcmd("boot.bootstring.txt", utf8Rus(buf, false));
-}
-
-void Nextion::newNameset(const char* meta){
-  char newnameset[59] = { 0 };
-  strlcpy(newnameset, meta, 59);
-  putcmd("player.meta.txt", utf8Rus(newnameset, true));
-}
-
-void Nextion::setVol(uint8_t vol, bool dialog){
-  if(dialog){
-    putcmd("dialog.text.txt", vol, true);
-  }
-  putcmd("player.volText.txt", vol, true);
-  putcmd("player.volumeSlider.val", vol);
-}
-
-void Nextion::fillVU(uint8_t LC, uint8_t RC){
-  putcmd("player.vul.val", LC);
-  putcmd("player.vur.val", RC);
-}
-
-void Nextion::newTitle(const char* title){
-  char ttl[50] = { 0 };
-  char sng[50] = { 0 };
-  if (strlen(title) > 0) {
-    char* ici;
-    if ((ici = strstr(title, " - ")) != NULL) {
-      strlcpy(sng, ici + 3, 50);
-      strlcpy(ttl, title, strlen(title) - strlen(ici) + 1);
-    } else {
-      strlcpy(ttl, title, 50);
-      sng[0] = '\0';
-    }
-    putcmd("player.title1.txt", utf8Rus(ttl, true));
-    putcmd("player.title2.txt", utf8Rus(sng, true));
-  }
-}
-
-void Nextion::printClock(struct tm timeinfo){
-  char timeStringBuff[100] = { 0 };
-  strftime(timeStringBuff, sizeof(timeStringBuff), "player.clock.txt=\"%H:%M\"", &timeinfo);
-  putcmd(timeStringBuff);
-  putcmdf("player.secText.txt=\"%02d\"", timeinfo.tm_sec);
-  snprintf(timeStringBuff, sizeof(timeStringBuff), "player.dateText.txt=\"%s, %d %s %d\"", LANG::dowf[timeinfo.tm_wday], timeinfo.tm_mday, LANG::mnths[timeinfo.tm_mon], timeinfo.tm_year+1900);
-  putcmd(utf8Rus(timeStringBuff, false));
-  if(mode==TIMEZONE) localTime(network.timeinfo);
-  if(mode==INFO)     rssi();
-}
-
-void Nextion::localTime(struct tm timeinfo){
-  char timeStringBuff[40] = { 0 };
-  strftime(timeStringBuff, sizeof(timeStringBuff), "localTime.txt=\"%H:%M:%S\"", &timeinfo);
-  putcmd(timeStringBuff);
-}
-
-void Nextion::printPLitem(uint8_t pos, const char* item){
-  char cmd[60]={0};
-  snprintf(cmd, sizeof(cmd) - 1, "t%d.txt=\"%s\"", pos, nextion.utf8Rus((char*)item, true));
-  putcmd(cmd);
-}
-
-uint8_t Nextion::_fillPlMenu(int from, uint8_t count) {
-  int     ls      = from;
-  uint8_t c       = 0;
-  bool    finded  = false;
-  if (config.playlistLength() == 0) {
-    return 0;
-  }
-  File playlist = config.SDPLFS()->open(REAL_PLAYL, "r");
-  File index = config.SDPLFS()->open(REAL_INDEX, "r");
-  while (true) {
-    if (ls < 1) {
-      ls++;
-      printPLitem(c, "");
-      c++;
-      continue;
-    }
-    if (!finded) {
-      index.seek((ls - 1) * 4, SeekSet);
-      uint32_t pos;
-      index.readBytes((char *) &pos, 4);
-      finded = true;
-      index.close();
-      playlist.seek(pos, SeekSet);
-    }
-    bool pla = true;
-    while (pla) {
-      pla = playlist.available();
-      String stationName = playlist.readStringUntil('\n');
-      stationName = stationName.substring(0, stationName.indexOf('\t'));
-      if(config.store.numplaylist && stationName.length()>0) stationName = String(from+c)+" "+stationName;
-      printPLitem(c, stationName.c_str());
-      c++;
-      if (c >= count) break;
-    }
-    break;
-  }
-  playlist.close();
-  return c;
-}
-
-void Nextion::drawPlaylist(uint16_t currentPlItem){
-  mode=STATIONS;
-  uint8_t lastPos = _fillPlMenu(currentPlItem - 3, 7);
-  if(lastPos<7){
-    for(int i=0;i<7-lastPos;i++){
-      printPLitem(lastPos+i, "");
-    }
-  }
-  _volDelay = millis();
-}
-
-void Nextion::drawNextStationNum(uint16_t num) {//dialog
-  putcmd("dialog.title.txt", utf8Rus(config.stationByNum(num), true));
-  putcmd("dialog.text.txt", num, true);
-  _volDelay = millis();
-}
-
-void Nextion::swichMode(displayMode_e newmode){
-  if (newmode == VOL) {
-    _volDelay = millis();
-  }
-  if (newmode == mode) {
-    return;
-  }
-  mode = newmode;
-#ifdef DUMMYDISPLAY
-  display.mode(newmode);
-#endif
-  if (newmode == PLAYER) {
-    putcmd("page player");
-    putcmd("dialog.title.txt", "");
-    putcmd("dialog.text.txt", "");
-  }
-  if (newmode == VOL) {
-    putcmd("dialog.title.txt", "VOLUME");
-    putcmd("page dialog");
-    putcmd("icon.pic", 65);
-  }
-  if (newmode == LOST) {
-    putcmd("page lost");
-  }
-  if (newmode == UPDATING) {
-    putcmd("page updating");
-  }
-  if (newmode == NUMBERS) {
-    putcmd("page dialog");
-    putcmd("icon.pic", 63);
-  }
-  if (newmode == STATIONS) {
-    putcmd("page playlist");
-#ifdef DUMMYDISPLAY
-    display.currentPlItem = config.lastStation();
-#endif
-    drawPlaylist(config.lastStation());
-  }
-}
-
-void Nextion::sleep(void) { 
-  putcmd("sleep=1");
-}
-void Nextion::wake(void) { 
-  putcmd("sleep=0");
-}
-/*
-  По мотивам https://forum.amperka.ru/threads/%D0%94%D0%B8%D1%81%D0%BF%D0%BB%D0%B5%D0%B9-nextion-%D0%B0%D0%B7%D1%8B-arduino-esp8266.9204/page-18#post-173442
-*/
-char* Nextion::utf8Rus(char* str, bool uppercase) {
-  int index = 0;
-  static char out[BUFLEN];
-  bool E = false;
-  memset(out, 0, sizeof(out));
-  if (uppercase) {
-    bool next = false;
-    for (char *iter = str; *iter != '\0'; ++iter)
-    {
-      if (E) {
-        E = false;
-        continue;
-      }
-      uint8_t rus = (uint8_t) * iter;
-      if (rus == 208 && (uint8_t) * (iter + 1) == 129) {
-        *iter = (char)209;
-        *(iter + 1) = (char)145;
-        E = true;
-        continue;
-      }
-      if (rus == 209 && (uint8_t) * (iter + 1) == 145) {
-        *iter = (char)209;
-        *(iter + 1) = (char)145;
-        E = true;
-        continue;
-      }
-      if (next) {
-        if (rus >= 128 && rus <= 143) *iter = (char)(rus + 32);
-        if (rus >= 176 && rus <= 191) *iter = (char)(rus - 32);
-        next = false;
-      }
-      if (rus == 208) next = true;
-      if (rus == 209) {
-        *iter = (char)208;
-        next = true;
-      }
-      *iter = toupper(*iter);
-    }
-  }
-  uint32_t codepoint = 0;
-  while (str[index])
-  {
-    uint8_t ch = (uint8_t) (str[index]);
-    if (ch <= 0x7f)
-      codepoint = ch;
-    else if (ch <= 0xbf)
-      codepoint = (codepoint << 6) | (ch & 0x3f);
-    else if (ch <= 0xdf)
-      codepoint = ch & 0x1f;
-    else if (ch <= 0xef)
-      codepoint = ch & 0x0f;
-    else
-      codepoint = ch & 0x07;
-    ++index;
-    if (((str[index] & 0xc0) != 0x80) && (codepoint <= 0x10ffff))
-    {
-      if (codepoint <= 255)
-      {
-        out[strlen(out)]=(uint8_t)codepoint;
-      }
-      else
-      {
-        if(codepoint > 0x400){
-          out[strlen(out)]=(uint8_t)(codepoint - 0x360);
-        }
-      }
-    }
-  }
-  out[strlen(out)+1]=0;
-  return out;
-}
-
-#endif //NEXTION_RX!=255 && NEXTION_TX!=255

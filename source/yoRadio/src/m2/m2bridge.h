@@ -40,5 +40,7 @@ struct WB {
   static void        apUnlock();
 };
 
+void wbApLock(bool on);                    /* радіо без мережі: з Wi-Fi виходу нема */
+
 }  // namespace m2
 #endif
