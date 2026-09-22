@@ -377,6 +377,88 @@ public class Agent : MarshalByRefObject {
                 }
                 return sb.ToString();
             }
+            case "whocalls": {       // whocalls <префікс типу> <підрядок імені виклику> — хто викликає
+                string[] q = arg.Split(' ');
+                StringBuilder sb = new StringBuilder();
+                foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies()) {
+                    Type[] ts; try { ts = a.GetTypes(); } catch { continue; }
+                    foreach (Type t in ts) {
+                        if (!t.FullName.StartsWith(q[0])) continue;
+                        foreach (MethodInfo m in t.GetMethods(ALL | BindingFlags.DeclaredOnly)) {
+                            MethodBody body; try { body = m.GetMethodBody(); } catch { continue; }
+                            if (body == null) continue;
+                            byte[] il = body.GetILAsByteArray();
+                            for (int i = 0; i + 4 < il.Length; i++) {
+                                if (il[i] != 0x28 && il[i] != 0x6F && il[i] != 0x73) continue;
+                                int tok = BitConverter.ToInt32(il, i + 1);
+                                int kind = tok >> 24; if (kind != 0x0A && kind != 0x06 && kind != 0x2B) continue;
+                                try { MethodBase mb = m.Module.ResolveMethod(tok);
+                                      string nm = mb.DeclaringType.Name + "." + mb.Name;
+                                      if (nm.IndexOf(q[1], StringComparison.OrdinalIgnoreCase) >= 0) { sb.Append(t.FullName).Append('.').Append(m.Name).Append(" -> ").Append(nm).Append('\n'); break; }
+                                } catch { }
+                            }
+                        }
+                    }
+                }
+                return sb.ToString();
+            }
+            case "marks": {          // коди типів компонентів: getobjmark(0..255)
+                object appobjs = Get(FindType("hmitype.AppData"), "appobjs");
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < 256; i++) {
+                    object m = null;
+                    try { m = Call(appobjs, "getobjmark", (byte)i); } catch { }
+                    if (m == null) continue;
+                    string nm = (string)Get(m, "name"); if (string.IsNullOrEmpty(nm)) continue;
+                    sb.Append(i).Append(" = ").Append(nm).Append(" / ").Append(Get(m, "label")).Append(" / ").Append(Get(m, "intname")).Append('\n');
+                }
+                return sb.ToString();
+            }
+            case "sig": {            // sig <підрядок типу параметра> — методи з таким параметром
+                StringBuilder sb = new StringBuilder();
+                foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies()) {
+                    Type[] ts; try { ts = a.GetTypes(); } catch { continue; }
+                    foreach (Type t in ts) foreach (MethodBase m in t.GetMethods(ALL | BindingFlags.DeclaredOnly)) {
+                        foreach (ParameterInfo pi in m.GetParameters()) if (pi.ParameterType.FullName != null && pi.ParameterType.FullName.Contains(arg.Trim())) { sb.Append(t.FullName).Append('.').Append(m.Name).Append('\n'); break; }
+                    }
+                    foreach (Type t in ts) foreach (ConstructorInfo m in t.GetConstructors(ALL)) {
+                        foreach (ParameterInfo pi in m.GetParameters()) if (pi.ParameterType.FullName != null && pi.ParameterType.FullName.Contains(arg.Trim())) { sb.Append(t.FullName).Append(".ctor\n"); break; }
+                    }
+                }
+                return sb.ToString();
+            }
+            case "whostores": {      // whostores <ім'я поля> — які методи пишуть у поле (stfld/stsfld)
+                StringBuilder sb = new StringBuilder();
+                foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies()) {
+                    Type[] ts; try { ts = a.GetTypes(); } catch { continue; }
+                    foreach (Type t in ts) foreach (MethodInfo m in t.GetMethods(ALL | BindingFlags.DeclaredOnly)) {
+                        MethodBody body; try { body = m.GetMethodBody(); } catch { continue; }
+                        if (body == null) continue;
+                        byte[] il = body.GetILAsByteArray();
+                        for (int i = 0; i + 4 < il.Length; i++) {
+                            if (il[i] != 0x7D && il[i] != 0x80) continue;
+                            int tok = BitConverter.ToInt32(il, i + 1);
+                            if ((tok >> 24) != 0x04 && (tok >> 24) != 0x0A) continue;
+                            try { FieldInfo fi = m.Module.ResolveField(tok); if (fi.Name == arg.Trim()) { sb.Append(t.FullName).Append('.').Append(m.Name).Append('\n'); break; } } catch { }
+                        }
+                    }
+                }
+                return sb.ToString();
+            }
+            case "autoload": {       // autoload <тека з hmi.txt> — вбудована автозбірка редактора (main.LoadFrom)
+                string dir = arg.Trim(); if (!dir.EndsWith("\\")) dir += "\\";
+                Form ff = f;
+                ff.BeginInvoke(new MethodInvoker(delegate {
+                    try { object r = Call(ff, "LoadFrom", dir); File.WriteAllText(Path.Combine(Dir, "autoload.txt"), "LoadFrom=" + r, Encoding.UTF8); }
+                    catch (Exception e) { File.WriteAllText(Path.Combine(Dir, "autoload.txt"), "ERR " + (e.InnerException ?? e).ToString(), Encoding.UTF8); }
+                }));
+                return "OK запущено (результат — build/nebuild/autoload.txt)";
+            }
+            case "static": {         // static <тип> <поле> — прочитати статичне поле
+                string[] q = arg.Split(' ');
+                object v = Get(FindType(q[0]), q[1]);
+                return v == null ? "null" : v.ToString();
+            }
             default: return "ERR невідома команда " + verb;
         }
     }
