@@ -29,7 +29,9 @@ enum : uint8_t {
   NXP_PL_SD = 11,
   NXP_PL_SERMON = 12,
   NXP_ATLAS0 = 13,
-  NXP_N = 14
+  NXP_ATLAS1 = 14,
+  NXP_ATLAS2 = 15,
+  NXP_N = 16
 };
 
 }  // namespace m2

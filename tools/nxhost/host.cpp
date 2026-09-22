@@ -28,6 +28,7 @@ namespace m2 {
 int8_t  bridgeRssi(){ const char* e = getenv("NX_RSSI"); return e ? atoi(e) : -60; }
 bool    bridgeClock(char* out, uint8_t cap, uint8_t& minute){ snprintf(out, cap, "21:43"); minute = 43; return true; }
 void    bridgeClosed(){}
+void    bridgeOpened(){}
 void    bridgeFade(uint16_t){}
 uint16_t bridgeBright(){ return 100; }
 }
