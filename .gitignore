@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+._*
+
+# Копія флешу радіо (паролі Wi-Fi, ключ погоди) і проміжні збірки
+backup/
+build/bp/
+build/out/
+build/*.log
+build/arduino-cli.yaml
+build/sketchbook/
+
+# Готові файли — у релізі на GitHub, не в коді
+firmware/*.bin
+firmware/*.tft
+firmware/web/
+nextion/**/*.tft
+source/yoRadio/data/www/*.gz
+source/yoRadio/src/extras/yoBuild.h
+
+# Робоче: журнал, знімки, тимчасове з віртуальної машини
+ЖУРНАЛ.md
+tools/vm/_run-*.ps1
+tools/**/*.png
+__pycache__/
+*.pyc
+build/arduino15/
+tools/vm/cache/
+build/device-work/
