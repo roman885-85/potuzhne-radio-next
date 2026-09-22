@@ -215,11 +215,10 @@ def build(p, meta, out_dir):
     pg.event('tm0', 'timer', 'printh 7E 4D\r\nprints tch0,2\r\nprints tch1,2')
     pg.add('variable', 'vs', sta=0, val=0)
     for k in range(NBAR): pg.add('variable', 'd%d' % k, sta=0, val=0)                   # висоти смужок 0..100
-    for k in range(NBAR): pg.add('variable', 'e%d' % k, sta=0, val=-1)                  # що вже намальовано
-    for k in range(5): pg.add('variable', 'c%d' % k, sta=0, val=-1)                     # те саме для рисок картки
     pg.add('timer', 'tm2', tim=50, en=1)   # 50 мс — мінімум для таймера Nextion, тобто стеля 20 кадрів/с
     pg.add('variable', 'vv', sta=0, val=0)
     pg.add('variable', 'vq', sta=0, val=0)
+    pg.add('variable', 'vt', sta=0, val=0)   # скільки разів спрацював таймер смужок
     pg.add('variable', 'vm', sta=0, val=3)   # 0 спектр, 1 обране, 2 пульт, 3 ще нічого
     pg.add('variable', 'vc', sta=0, val=0)   # 1 — грає (риски в картці живі)
     #  таймер секунд прибрано: на залізі він не виконувався, хоч сусідній працював.
@@ -298,6 +297,7 @@ def build(p, meta, out_dir):
         code.append('fill %d,%d,%d,vq.val,%d' % (x, bottom - h, w, bg))
         code.append('vq.val=%d-vv.val' % bottom)
         code.append('fill %d,vq.val,%d,vv.val,%d' % (x, w, fg))
+    code.append('vt.val=vt.val+1')                                  # такт таймера: видно ззовні, чи він живий
     code.append('if(vm.val==0)'); code.append('{')                  # рядок спектра зайнятий іншим — не малюємо
     for k in range(NBAR):
         bar('d%d' % k, int(round(SPX0 + k * SPSTEP)), SPB, SPH, SPW, c565(C['BG']), c565(C['ACC']))

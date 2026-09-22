@@ -396,12 +396,13 @@ void Nextion::selftest(){
 
   /*  3. таймер екрана справді виконується: пишемо мітку й дивимось, чи спаде  */
   if(dp == 2){
+    const int32_t t0 = ask("vt.val");
+    delay(500);
+    const int32_t t1 = ask("vt.val");
+    say(t1 != INT32_MIN && t1 > t0, "таймер екрана", "тактів за 0,5 с: %ld", (long)(t1 - t0));
     extSend("d0.val=100"); delay(400);
     const int32_t d0 = ask("d0.val");
-    say(d0 != INT32_MIN && d0 < 100, "таймер екрана", "за 0,4 с: 100 → %ld", (long)d0);
-    /*  4. малювання: тінь має піти за значенням  */
-    const int32_t e0 = ask("e0.val");
-    say(e0 != INT32_MIN && e0 >= 0, "малювання смужок", "тінь %ld (−1 = не малює)", (long)e0);
+    say(d0 != INT32_MIN && d0 < 100, "спад смужки", "за 0,4 с: 100 → %ld", (long)d0);
     /*  5. завантаженість процесора екрана  */
     const int32_t cpu = ask("bcpu");
     say(cpu == INT32_MIN || cpu < 80, "процесор екрана", "%ld%%", (long)cpu);

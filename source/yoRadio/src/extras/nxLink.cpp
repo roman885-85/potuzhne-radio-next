@@ -130,9 +130,42 @@ namespace {
       if (!buf) { snprintf(st, sizeof st, "немає пам'яті під буфер"); break; }
       int sent = 0, lastPct = -1; uint32_t t0 = millis();
       bool bad = false;
+      /*  Обрив качання посеред заливки лишав екран чекати продовження — і він застрягав у
+          режимі прийому назавжди (оживав лише зняттям живлення). Тому качання відновлюємо
+          з того ж місця: спершу просимо шматок заголовком Range, а якщо сервер його не вміє
+          (простий http.server у Python), перечитуємо з початку й пропускаємо вже надіслане.  */
+      auto resume = [&](int from) -> bool {
+        for (uint8_t att = 0; att < 3; att++) {
+          http.end(); delay(400);
+          if (https) { sec.setInsecure(); http.begin(sec, j->url); } else http.begin(plain, j->url);
+          http.setTimeout(15000);
+          char rng[40]; snprintf(rng, sizeof rng, "bytes=%d-", from);
+          http.addHeader("Range", rng);
+          const int code2 = http.GET();
+          if (code2 != 200 && code2 != 206) continue;
+          s = http.getStreamPtr();
+          if (code2 == 200 && from) {                 /* Range не підтримано — пропускаємо самі */
+            int skip = from;
+            while (skip > 0) {
+              const int k = min(4096, skip);
+              if (!readFull(s, buf, k, 20000)) { skip = -1; break; }
+              skip -= k;
+            }
+            if (skip < 0) continue;
+          }
+          say(cid, "качання відновлено з %d", from);
+          return true;
+        }
+        return false;
+      };
+
       while (sent < total) {
         int want = min(4096, total - sent);
-        if (!readFull(s, buf, want, 20000)) { snprintf(st, sizeof st, "обрив завантаження на %d", sent); bad = true; break; }
+        if (!readFull(s, buf, want, 20000)) {
+          if (!resume(sent) || !readFull(s, buf, want, 20000)) {
+            snprintf(st, sizeof st, "обрив завантаження на %d", sent); bad = true; break;
+          }
+        }
         hSerial.write(buf, want);
         sent += want;
         r = waitByte(10000);
@@ -140,7 +173,7 @@ namespace {
           uint8_t o[4]; for (int i = 0; i < 4; i++) { int c = waitByte(1000); o[i] = c < 0 ? 0 : c; }
           uint32_t off = o[0] | (o[1] << 8) | (o[2] << 16) | ((uint32_t)o[3] << 24);
           if (off > (uint32_t)sent && off <= (uint32_t)total) {
-            while ((uint32_t)sent < off) { int k = min(4096, (int)(off - sent)); if (!readFull(s, buf, k, 20000)) { bad = true; break; } sent += k; }
+            while ((uint32_t)sent < off) { int k = min(4096, (int)(off - sent)); if (!readFull(s, buf, k, 20000) && (!resume(sent) || !readFull(s, buf, k, 20000))) { bad = true; break; } sent += k; }
             if (bad) { snprintf(st, sizeof st, "обрив під час пропуску до %lu", (unsigned long)off); break; }
           }
         } else if (r != 0x05) { snprintf(st, sizeof st, "екран не підтвердив шматок на %d (відповідь %d)", sent, r); bad = true; break; }
