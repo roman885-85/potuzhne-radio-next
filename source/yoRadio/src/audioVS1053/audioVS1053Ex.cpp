@@ -314,15 +314,19 @@ void Audio::begin(){
     // Switch on the analog parts
     write_register(SCI_AUDATA, 44100 + 1);                  // 44.1kHz + stereo
     // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
-    write_register(SCI_CLOCKF, 6 << 12);                    // Normal clock settings multiplyer 3.0=12.2 MHz
+    /*  0x6800 замість 6<<12: ті самі 3.0×, але дозволено додати ще 1.0× (поле SC_ADD).
+        Автопідйом у VS1053b спрацьовує на WMA і AAC — і саме HE-AAC той випадок, де
+        аналізатор (~1,6 МГц) разом із VU-метром (~0,6 МГц) можуть не влізти в бюджет DSP.  */
+    write_register(SCI_CLOCKF, 0x6800);
+    VS1053_SPI_CTL = SPISettings(4000000, MSBFIRST, SPI_MODE0);   /* аж тепер: стеля читання стала CLKI/7 */
     write_register(SCI_MODE, _BV (SM_SDINEW) | _BV(SM_LINE1));
-    // testComm("Fast SPI, Testing VS1053 read/write registers again... \n");
     await_data_request();
-    //set vu meter
-    setVUmeter();
     m_endFillByte = wram_read(0x1E06) & 0xFF;
-    //  printDetails("After last clocksetting \n");
-    if(VS_PATCH_ENABLE) loadUserCode(); // load in VS1053B if you want to play flac
+    if(VS_PATCH_ENABLE) {
+      loadUserCode();                                       /* патч, потім аналізатор */
+      _saInitalized = true;
+    }
+    setVUmeter();                                           /* біт VU зводимо ПІСЛЯ патча */
     startSong();
 }
 //---------------------------------------------------------------------------------------------------------------------
@@ -464,6 +468,7 @@ void Audio::stopSong()
 //---------------------------------------------------------------------------------------------------------------------
 void Audio::softReset()
 {
+    _saInitalized = false;              /* скидання зносить плагіни: спектр читати більше нема звідки */
     write_register(SCI_MODE, _BV (SM_SDINEW) | _BV(SM_RESET));
     delay(100);
     await_data_request();
@@ -1907,26 +1912,44 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     return res;
 }
 //---------------------------------------------------------------------------------------------------------------------
-void Audio::loadUserCode(void) {
-  int i = 0;
-
-  while (i<sizeof(flac_plugin)/sizeof(flac_plugin[0])) {
-    unsigned short addr, n, val;
-    addr = flac_plugin[i++];
-    n = flac_plugin[i++];
-    if (n & 0x8000U) { /* RLE run, replicate n samples */
+void Audio::loadPlugin(const uint16_t* plugin, size_t words) {
+  size_t i = 0;
+  while (i < words) {
+    uint16_t addr = plugin[i++];
+    uint16_t n    = plugin[i++];
+    if (n & 0x8000U) {                 /* RLE run, replicate n samples */
       n &= 0x7FFF;
-      val = flac_plugin[i++];
-      while (n--) {
-        write_register(addr, val);
-      }
-    } else {           /* Copy run, copy n samples */
-      while (n--) {
-        val = flac_plugin[i++];
-        write_register(addr, val);
-      }
+      uint16_t val = plugin[i++];
+      while (n--) write_register(addr, val);
+    } else {                           /* Copy run, copy n samples */
+      while (n--) write_register(addr, plugin[i++]);
     }
   }
+}
+
+/*  Порядок принципіальний: наприкінці кожної таблиці — запис у SCI_AIADDR, і хто йде другим,
+    той забирає гачок собі. Патч ставить 0x0050, аналізатор — 0x0D00. Поміняти місцями —
+    і спектр мовчки лишиться нулями (грати чип при цьому буде нормально).
+    FLAC свідомо втрачено: його патч перекривається з аналізатором по IRAM.  */
+void Audio::loadUserCode(void) {
+  loadPlugin(vs1053b_patches,  VS1053B_PATCHES_SIZE);
+  loadPlugin(vs1053b_spectrum, VS1053B_SPECTRUM_SIZE);
+}
+
+/*  14 смуг просто під час декодування. Адреса в X-RAM інкрементиться сама після кожного
+    читання SCI_WRAM, тому wram_read() тут не годиться — він щоразу переписує адресу.  */
+uint8_t Audio::readSpectrum(uint8_t* cur, uint8_t* peak) {
+  if(!_saInitalized) return 0;
+  write_register(SCI_WRAMADDR, VS1053B_SA_BASE + 2);
+  uint8_t bands = read_register(SCI_WRAM) & 0xFF;
+  if(bands == 0 || bands > VS1053B_SA_MAX_BANDS) return 0;   /* плагін не піднявся — не малюємо сміття */
+  write_register(SCI_WRAMADDR, VS1053B_SA_BASE + 4);
+  for(uint8_t i = 0; i < bands; i++) {
+    uint16_t v = read_register(SCI_WRAM);
+    if(cur)  cur[i]  =  v       & 0x3F;                      /* поточне, 0..31, крок 3 дБ */
+    if(peak) peak[i] = (v >> 6) & 0x3F;                      /* пік чип рахує сам */
+  }
+  return bands;
 }
 //---------------------------------------------------------------------------------------------------------------------
 void Audio::UTF8toASCII(char* str){

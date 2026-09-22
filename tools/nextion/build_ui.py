@@ -13,7 +13,7 @@
 import math, os, sys
 from PIL import Image
 sys.path.insert(0, os.path.dirname(__file__))
-import gfx, nxassets
+import gfx, nxassets, page_player
 from hmi import Project, rgb565
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -87,6 +87,12 @@ def main():
     ui.event('tm0', 'timer', 'printh 7E 4D\r\nprints tch0,2\r\nprints tch1,2')
     ui.event('ui', 'down', 'printh 7E 50\r\nprints tch0,2\r\nprints tch1,2\r\ntm0.en=1')
     ui.event('ui', 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch2,2\r\nprints tch3,2')
+
+    # ---- pl: головний екран рідними компонентами
+    plids = {} if 'pl' in os.environ.get('NX_SKIP', '') else page_player.build(p, meta, os.path.join(OUT, 'pl'))
+    with open(os.path.join(ROOT, 'source', 'yoRadio', 'src', 'm2', 'nxpl_ids.h'), 'w', encoding='utf-8') as f:
+        f.write('/*  Створює tools/nextion/page_player.py — вручну не правити. Номери картинок сторінки «pl».  */\n#pragma once\n')
+        for k, v in plids.items(): f.write('#define NXPL_%s %d\n' % (k, v))
 
     # ---- upd: хід оновлення
     skip = os.environ.get('NX_SKIP', '')

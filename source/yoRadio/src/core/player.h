@@ -12,7 +12,9 @@
 #endif
 
 #ifndef PLQ_SEND_DELAY
-  #define PLQ_SEND_DELAY pdMS_TO_TICKS(1000) //portMAX_DELAY
+  /*  Команда рівня чи перевірки картки не варта секунди чекання на черзі —
+      краще її загубити, ніж заморозити того, хто посилає.  */
+  #define PLQ_SEND_DELAY pdMS_TO_TICKS(20)
 #endif
 
 enum playerRequestType_e : uint8_t { PR_PLAY = 1, PR_STOP = 2, PR_PREV = 3, PR_NEXT = 4, PR_VOL = 5, PR_CHECKSD = 6, PR_VUTONUS = 7, PR_BURL = 8, PR_TOGGLE = 9 };
@@ -32,7 +34,7 @@ class Player: public Audio {
     plStatus_e  _status;
     //char        _plError[PLERR_LN];
   private:
-    void _stop(bool alreadyStopped = false);
+    void _stop(bool alreadyStopped = false, bool keepAmp = false);
     void _play(uint16_t stationId);
     void _loadVol(uint8_t volume);
     bool _hasError;
@@ -68,6 +70,9 @@ class Player: public Audio {
     void stopInfo();
     void setOutputPins(bool isPlaying);
     void setResumeFilePos(uint32_t pos) { _resumeFilePos = pos; }
+    /*  Зупинити просто зараз (не через чергу) і без клацання — перед тим, як
+        зайняти шину карткою пам'яті (ПОТУЖНЕ РАДІО, перехід радіо↔картка).  */
+    void fadeStop();
 };
 
 extern Player player;

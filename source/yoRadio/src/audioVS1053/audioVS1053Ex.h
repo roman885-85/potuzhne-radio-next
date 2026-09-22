@@ -25,7 +25,7 @@
 #include "WiFiClient.h"
 #include "WiFiClientSecure.h"
 
-#include "vs1053b-patches-flac.h"
+#include "vs1053b-plugins.h"
 
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
 #include "hal/gpio_ll.h"
@@ -243,6 +243,7 @@ private:
     bool            m_f_unsync = false;
     bool            m_f_exthdr = false;             // ID3 extended header
     bool            _vuInitalized;
+    bool            _saInitalized = false;          // аналізатор спектра залитий і ще не збитий softReset()
     
     const char volumetable[22]={   0,50,60,65,70,75,80,82,84,86,
                                   88,90,91,92,93,94,95,96,97,98,99,100}; //22 elements
@@ -291,6 +292,7 @@ protected:
     void     unicode2utf8(char* buff, uint32_t len);
     //void     setDefaults();
     void     loadUserCode();
+    void     loadPlugin(const uint16_t* plugin, size_t words);
 
 
 
@@ -341,6 +343,8 @@ public:
     void     setVUmeter();
     uint16_t get_VUlevel(uint16_t dimension);
     void     computeVUlevel();
+    /* SPECTRUM ANALYZER (плагін VLSI: 14 смуг просто під час декодування) */
+    uint8_t  readSpectrum(uint8_t* cur, uint8_t* peak = nullptr);   // скільки смуг прочитано
     bool     eofHeader;
     // implement several function with respect to the index of string
     bool startsWith (const char* base, const char* str) { return (strstr(base, str) - base) == 0;}

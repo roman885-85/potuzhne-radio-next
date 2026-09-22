@@ -10,11 +10,12 @@ $t0 = Get-Date
 Start-Process $Global:NeLaunch -ArgumentList "`"$arg`"" -WorkingDirectory 'C:\Tools\NextionEditor'
 $deadline = (Get-Date).AddSeconds($(if ($Timeout) { $Timeout } else { 600 }))
 $errMsg = $null
+$msgs = @()
 while ((Get-Date) -lt $deadline) {
     Start-Sleep 3
     # повідомлення редактора (помилка в описі проєкту) — забрати текст і не чекати даремно
     $m = @(Dismiss-NeMessages)
-    if ($m.Count -gt 0) { $errMsg = ($m -join ' / '); break }
+    if ($m.Count -gt 0) { $msgs += $m; if ($msgs.Count -ge 8) { $errMsg = ($msgs | Select-Object -Unique) -join ' / '; break } }
     # MessageForm редактора: текст намальований, UIA його не бачить — питаємо агента NeBuild (okmsg)
     $mf = $null
     foreach ($w in (Get-NeWindows)) {
@@ -22,12 +23,29 @@ while ((Get-Date) -lt $deadline) {
         if ($f) { $mf = $f }
     }
     if ($mf) {
+        # Це не конче помилка: редактор питає «Do you want to save the changes?».
+        # Агент NeBuild тисне OK/Yes і повертає текст; збірку далі чекаємо, а не кидаємо.
         $nb = '\\Mac\Home\Documents\radio_potughne_next\build\nebuild'
         Remove-Item "$nb\out.txt" -ErrorAction SilentlyContinue
         Set-Content "$nb\cmd.tmp" 'okmsg' -Encoding UTF8; Move-Item "$nb\cmd.tmp" "$nb\cmd.txt" -Force
         for ($i = 0; $i -lt 40 -and -not (Test-Path "$nb\out.txt"); $i++) { Start-Sleep -Milliseconds 250 }
-        $errMsg = if (Test-Path "$nb\out.txt") { (Get-Content "$nb\out.txt" -Raw) -replace '\s+', ' ' } else { 'повідомлення редактора (текст не прочитано)' }
-        break
+        $txt = if (Test-Path "$nb\out.txt") { (Get-Content "$nb\out.txt" -Raw) -replace '\s+', ' ' } else { '(текст не прочитано)' }
+        $msgs += $txt
+        if ($msgs.Count -ge 8) { $errMsg = ($msgs | Select-Object -Unique) -join ' / '; break }
+        # знімок екрана ВМ — щоб було видно, що саме питав редактор
+        if ($msgs.Count -eq 1) {
+            try {
+                Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms
+                $r = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+                $bmp = New-Object System.Drawing.Bitmap ([int]$r.Width), ([int]$r.Height)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                $g.CopyFromScreen([int]$r.X, [int]$r.Y, 0, 0, $bmp.Size)
+                $bmp.Save('\\Mac\Home\Documents\radio_potughne_next\build\nx\editor-msg.png')
+                $g.Dispose(); $bmp.Dispose()
+            } catch { }
+        }
+        Start-Sleep 2
+        continue
     }
     if (Test-Path "$OutDir\$Name.tft") {
         $len1 = (Get-Item "$OutDir\$Name.tft").Length; Start-Sleep 3; $len2 = (Get-Item "$OutDir\$Name.tft").Length

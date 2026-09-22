@@ -15,6 +15,7 @@ Menu M;
 int8_t  bridgeRssi();
 bool    bridgeClock(char* out, uint8_t cap, uint8_t& minute);
 void    bridgeClosed();                 /* меню закрилось: плеєр — наново */
+void    bridgeOpened();                 /* меню відкрилось: зі сторінки плеєра на сторінку меню */
 void    bridgeFade(uint16_t level);     /* підсвітка під час затемнення */
 uint16_t bridgeBright();
 
@@ -602,6 +603,7 @@ void Menu::_applyCmds(){
     if(!any) break;
     switch(c.op){
       case C_OPEN:
+        bridgeOpened();                             /* зі сторінки «pl» на «ui» — малює вже Gfx */
         _depth = 0; _stack[_depth++] = c.p;
         _open = true; _openReq = false;
         _tDir = 0; _from = nullptr; _tm = TM_NONE; _ripOn = false; _toastOn = false; _fling = false;
@@ -860,9 +862,6 @@ void Menu::_flush(){
       g.pass(x0, y0, w, h);
       _drawScene(g);
       g.flush();
-#ifdef ARDUINO
-      vTaskDelay(1);                     /* між проходами — віддати процесор (мережа, звук) */
-#endif
       pfStrips++;
     }
   }

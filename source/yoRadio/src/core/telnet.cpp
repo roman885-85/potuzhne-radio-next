@@ -74,6 +74,8 @@ void Telnet::cleanupClients() {
 }
 
 void Telnet::handleSerial(){
+  static bool once = true;
+  if(once){ once = false; Serial.setTimeout(50); }   /* типовий timeout Stream — 1 с у головному циклі */
   if(Serial.available()){
     String request = Serial.readStringUntil('\n'); request.trim();
     on_input(request.c_str(), 100);
@@ -122,12 +124,16 @@ void Telnet::loop() {
         }
       }
     } else {
-      for (i = 0; i < MAX_TLN_CLIENTS; i++) {
-        if (clients[i]) {
-          clients[i].stop();
+      /*  Тут стояв delay(1000): щойно зникав зв'язок, увесь головний цикл ішов
+          із частотою 1 Гц — звук рвався, кнопки не відповідали. Прибирати
+          мертвих клієнтів досить раз на секунду й без сну.  */
+      static uint32_t lastCleanup = 0;
+      if (millis() - lastCleanup > 1000) {
+        lastCleanup = millis();
+        for (i = 0; i < MAX_TLN_CLIENTS; i++) {
+          if (clients[i]) clients[i].stop();
         }
       }
-      delay(1000);
     }
   }
   handleSerial();

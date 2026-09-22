@@ -15,12 +15,16 @@ WIN='\\Mac\Home\Documents\radio_potughne_next'
 # 1. автозбірка: редактор з аргументом-текою сам виконує main.LoadFrom, зберігає HMI, компілює .tft
 #    і закривається (tools/vm/autobuild.ps1). Агент NeBuild тим часом ставить кодування нових
 #    проєктів utf-8 (інакше редактор бере koi8-r з кирилічної Windows).
-OUT="$(printf '%s\n' "\$Folder = '$WIN\\build\\nx\\$N'" "\$Name = '$N'" ". '$WIN\\tools\\vm\\autobuild.ps1'" | "$EX" 2>&1 | tail -1)"
+if [ "${NX_NOBUILD:-0}" = "1" ]; then OUT="TFT: вже зібрано"; else
+OUT="$(printf '%s\n' "\$Folder = '$WIN\\build\\nx\\$N'" "\$Name = '$N'" "\$Timeout = ${NX_TIMEOUT:-1500}" ". '$WIN\\tools\\vm\\autobuild.ps1'" | "$EX" 2>&1 | tail -1)"
+fi
 echo "$OUT" | grep -q "^TFT: " || { echo "збірка: $OUT"; exit 1; }
+if [ "${NX_NOBUILD:-0}" != "1" ]; then
 mkdir -p "$ROOT/build/nextion-out"
 printf '%s\n' ". '$WIN\\tools\\vm\\ui.ps1'" \
   "Copy-Shared 'C:\\Tools\\work\\out\\$N.tft' '$WIN\\build\\nextion-out\\$N.tft'" | "$EX" >/dev/null
 ls -l "$ROOT/build/nextion-out/$N.tft" | awk '{print "tft:", $5, "байт"}'
+fi
 
 # 2. знімки з симулятора
 if [ -n "$SHOT" ]; then
@@ -31,6 +35,10 @@ if [ -n "$SHOT" ]; then
   NB_WAIT=30 "$NB" "clickitem Debug" >/dev/null; sleep 5
   for pg in $SHOT; do
     if [ "$pg" != "-" ]; then NB_WAIT=30 "$NB" "sim page $pg" >/dev/null; sleep 1.5; fi
+    # значення для сторінки: build/nx/<сторінка>.cmds — команди, які на радіо шле прошивка
+    if [ -f "$ROOT/tools/nextion/${pg}sim.txt" ]; then
+      NB_WAIT=90 "$NB" "simfile \\\\Mac\\Home\\Documents\\radio_potughne_next\\tools\\nextion\\${pg}sim.txt" >/dev/null; sleep 2
+    fi
     RECT="$(NB_WAIT=30 "$NB" "ctlrect 480 320" | grep TFTRUN | head -1)"
     X=$(echo "$RECT" | awk '{print $4}'); Y=$(echo "$RECT" | awk '{print $5}')
     prlctl capture "$VM" --file "$ROOT/build/nx/shots/_vm.png" >/dev/null

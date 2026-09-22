@@ -146,6 +146,11 @@ void Config::changeMode(int newmode){
   if(getMode()==PM_SDCARD) {
     sdResumePos = player.getFilePos();
   }
+  /*  Звук — стишити й зупинити одразу, до всього іншого: далі картка монтується
+      (у цього радіо SD і VS1053 на одній шині VSPI), список читається, і головний
+      цикл стоїть сотні мілісекунд. Раніше PR_STOP ішов у чергу й спрацьовував уже
+      після виходу звідси — звідси заїкання і зірване монтування.  */
+  if(pir) player.fadeStop();
   if(network.status==SOFT_AP || display.mode()==LOST){
     saveValue(&store.play_mode, static_cast<uint8_t>(PM_SDCARD));
     delay(50);
@@ -156,6 +161,7 @@ void Config::changeMode(int newmode){
       Serial.println("##[ERROR]#\tSD Not Found");
       netserver.requestOnChange(GETPLAYERMODE, 0);
       sdman.stop();
+      if(pir) player.sendCommand({PR_PLAY, lastStation()});   /* картки нема — радіо грає далі */
       return;
     }
   }
@@ -168,7 +174,6 @@ void Config::changeMode(int newmode){
   saveValue(&store.play_mode, store.play_mode, true, true);
   _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&SPIFFS:_SDplaylistFS);
   if(getMode()==PM_SDCARD){
-    if(pir) player.sendCommand({PR_STOP, 0});
     display.putRequest(NEWMODE, SDCHANGE);
     #ifdef NETSERVER_LOOP1
     while(display.mode()!=SDCHANGE)
@@ -178,7 +183,9 @@ void Config::changeMode(int newmode){
   }
   if(getMode()==PM_WEB) {
     if(network.status==SDREADY) ESP.restart();
-    sdman.stop();
+    /*  Картку не відмонтовуємо: повторне монтування лишає зайнятий запис файлової
+        системи, і на третій перехід «на картку» їх не стає (mount_to_vfs failed
+        0x101). Змонтована картка в режимі радіо нічого не коштує.  */
   }
   if(!_bootDone) return;
   initPlaylistMode();
@@ -456,7 +463,8 @@ void Config::setSDpos(uint32_t val){
       player.setResumeFilePos(val-player.sd_min);
       player.sendCommand({PR_PLAY, config.store.lastSdStation});
     }else{
-      player.setFilePos(val-player.sd_min);
+      /*  повзунок іде від sd_min до sd_max — це вже позиція у файлі  */
+      player.setFilePos(val);
     }
   }
 }
@@ -693,6 +701,7 @@ void Config::setTitle(const char* title) {
 }
 
 void Config::setStation(const char* station) {
+  if(station == config.station.name) return;   /* memset стер би джерело */
   memset(config.station.name, 0, BUFLEN);
   strlcpy(config.station.name, station, BUFLEN);
   u8fix(config.station.title);
@@ -923,7 +932,8 @@ bool Config::initNetwork() {
   }
   char ssidval[30], passval[40];
   uint8_t c = 0;
-  while (file.available()) {
+  ssidsCount = 0;                       /* список можуть перечитувати не лише на старті */
+  while (file.available() && c < 5) {   /* розмір ssids[] */
     if (parseSsid(file.readStringUntil('\n').c_str(), ssidval, passval)) {
       strlcpy(ssids[c].ssid, ssidval, 30);
       strlcpy(ssids[c].password, passval, 40);

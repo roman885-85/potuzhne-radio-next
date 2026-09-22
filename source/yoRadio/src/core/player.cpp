@@ -96,11 +96,11 @@ void Player::setError(const char *e){
   setError();
 }
 
-void Player::_stop(bool alreadyStopped){
+void Player::_stop(bool alreadyStopped, bool keepAmp){
   log_i("%s called", __func__);
   if(config.getMode()==PM_SDCARD && !alreadyStopped) config.sdResumePos = player.getFilePos();
   _status = STOPPED;
-  setOutputPins(false);
+  if(!keepAmp) setOutputPins(false);     /* keepAmp: слідом грає інше джерело — не клацати підсилювачем */
   if(!_hasError) config.setTitle((display.mode()==LOST || display.mode()==UPDATING)?"":LANG::const_PlStopped);
   config.station.bitrate = 0;
   config.setBitrateFormat(BF_UNKNOWN);
@@ -138,7 +138,9 @@ void resetPlayer(){
   #define PL_QUEUE_TICKS 0
 #endif
 #ifndef PL_QUEUE_TICKS_ST
-  #define PL_QUEUE_TICKS_ST 15
+  /*  Скільки чекати на черзі, коли нічого не грає: довге чекання = рідкий
+      опит кнопок і команд Nextion у головному циклі.  */
+  #define PL_QUEUE_TICKS_ST 4
 #endif
 void Player::loop() {
   if(playerQueue==NULL) return;
@@ -218,7 +220,8 @@ void Player::_play(uint16_t stationId) {
   _hasError=false;
   setDefaults();
   _status = STOPPED;
-  setOutputPins(false);
+  /*  Підсилювач тут не вимикаємо: при перемиканні станцій він клацав двічі.
+      Не з'єдналось — _stop() його вимкне.  */
   remoteStationName = false;
   
   if(!config.prepareForPlaying(stationId)) return;
@@ -323,6 +326,16 @@ uint8_t Player::volToI2S(uint8_t volume) {
 
 void Player::_loadVol(uint8_t volume) {
   setVolume(volToI2S(volume));
+}
+
+/*  Гучність зводимо вниз за ~90 мс і зупиняємо синхронно: у VS1053 програмного
+    зведення (yoDsp) немає, тому працюємо апаратним регулятором SCI_VOL.  */
+void Player::fadeStop(){
+  if(_status != PLAYING){ if(_status != STOPPED) _stop(); return; }
+  const uint8_t v = config.store.volume;
+  for(int8_t i = 5; i >= 0; i--){ setVolume(volToI2S((uint8_t)(v * i / 5))); vTaskDelay(pdMS_TO_TICKS(15)); }
+  _stop(false, true);
+  _loadVol(v);                            /* гучність повертаємо для наступного пуску */
 }
 
 void Player::setVol(uint8_t volume) {

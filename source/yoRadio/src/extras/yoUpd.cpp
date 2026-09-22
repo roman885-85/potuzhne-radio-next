@@ -12,6 +12,7 @@ namespace {
     esp_app_desc_t d;
     if (!f || esp_ota_get_partition_description(f, &d) != ESP_OK) return false;   // оновлювача немає — не ризикуємо
     if (esp_ota_set_boot_partition(f) != ESP_OK) return false;
+    player.lockOutput = true;    /* зупинка не має скидати «автостарт» */
     player.sendCommand({PR_STOP, 0});
     delay(300);
     ESP.restart();

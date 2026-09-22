@@ -20,6 +20,11 @@ bool bridgeClock(char* out, uint8_t cap, uint8_t& minute){
   return true;
 }
 
+void bridgeOpened(){
+  P.hide();
+  if(nxSink) nxSink->cmd("page ui");
+}
+
 void bridgeClosed(){
   P.show();
   uint8_t a = afterClose;

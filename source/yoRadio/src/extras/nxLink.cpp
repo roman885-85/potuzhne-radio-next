@@ -221,6 +221,7 @@ namespace NxLink {
     if (baud == 0) baud = 115200;
     running = true;
     nextion.paused = true;
+    player.lockOutput = true;    /* зупинка не має скидати «автостарт» */
     player.sendCommand({PR_STOP, 0});
     delay(80);
     Job* j = new Job();

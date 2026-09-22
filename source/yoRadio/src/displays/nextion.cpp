@@ -30,7 +30,12 @@ namespace {
   bool     needBk = true;             /* треба (знову) ввімкнути bkcmd=3 */
   QueueHandle_t extq = nullptr;       /* команди з інших задач */
   struct ExtCmd { char s[64]; };
-  /*  розбір того, що шле екран: відповіді (…FF FF FF) і дотики (~ тип xL xH yL yH)  */
+  /*  Розбір того, що шле екран: відповіді (…FF FF FF) і власні кадри сторінки «pl» —
+      завжди 0x7E і п'ять байтів: тип + чотири. Типи:
+        'P' 'M' 'R'  дотик: x (2 байти), y (2 байти) — координати екрана 480×320;
+        'V' 'W'      повзунок: номер (1 гучність, 2 перемотка), значення (2 байти);
+                     'V' — ведуть, 'W' — відпустили;
+        'B'          кнопка: номер (1 ⏮, 2 ⏭).  */
   enum : uint8_t { RX_IDLE, RX_TOUCH, RX_REPLY };
   uint8_t rst = RX_IDLE, rbuf[8], rlen = 0, ffs = 0;
   struct Touch { uint8_t kind; int16_t x, y; };
@@ -53,7 +58,12 @@ namespace {
         rbuf[rlen++] = c;
         if(rlen == 5){
           uint8_t n = (tqh + 1) % 16;
-          if(n != tqt){ tq[tqh].kind = rbuf[0]; tq[tqh].x = rbuf[1] | (rbuf[2] << 8); tq[tqh].y = rbuf[3] | (rbuf[4] << 8); tqh = n; }
+          if(n != tqt){
+            tq[tqh].kind = rbuf[0];
+            if(rbuf[0] == 'V' || rbuf[0] == 'W' || rbuf[0] == 'B'){ tq[tqh].x = rbuf[1]; tq[tqh].y = rbuf[2] | (rbuf[3] << 8); }
+            else { tq[tqh].x = rbuf[1] | (rbuf[2] << 8); tq[tqh].y = rbuf[3] | (rbuf[4] << 8); }
+            tqh = n;
+          }
           rst = RX_IDLE;
         }
         break;
@@ -130,6 +140,17 @@ namespace {
   bool swallow = false;
   Touch ptq[16]; volatile uint8_t ptqh = 0, ptqt = 0;   /* дотики плеєра → головний цикл */
   void handleTouch(const Touch& t){
+    if(t.kind == 'V' || t.kind == 'W' || t.kind == 'B'){
+      /*  повзунки й кнопки рідної сторінки: дії важкі (гучність, перемотка) — у головний цикл  */
+      if(m2::M.active()) return;
+      uint8_t n = (ptqh + 1) % 16;
+      if(t.kind == 'V'){                           /* ведуть повзунок: досить останнього */
+        uint8_t pr = (ptqh + 15) % 16;
+        if(ptqh != ptqt && ptq[pr].kind == 'V' && ptq[pr].x == t.x){ ptq[pr].y = t.y; return; }
+      }
+      if(n != ptqt){ ptq[ptqh] = t; ptqh = n; }
+      return;
+    }
     const int16_t vx = (int16_t)lroundf(t.x / 1.5f), vy = (int16_t)lroundf(t.y * 0.75f);
     if(t.kind == 'P'){
       if(extras.touchWake()){ swallow = true; lastDim = -1; return; }   /* темний екран — дотик лише будить */
@@ -157,7 +178,7 @@ namespace {
       drainExt();
       while(tqt != tqh){ Touch t = tq[tqt]; tqt = (tqt + 1) % 16; if(nextion.started()) handleTouch(t); }
       if(nextion.started()){
-        if(splashUntil && (int32_t)(millis() - splashUntil) >= 0){ splashUntil = 0; sink.cmd("page ui"); m2::P.show(); }
+        if(splashUntil && (int32_t)(millis() - splashUntil) >= 0){ splashUntil = 0; m2::P.show(); }
         if(!splashUntil){
           if(shotReq){
             shotReq = false;
@@ -236,9 +257,8 @@ void Nextion::start(){
   if(_started) return;
   if(network.status == SOFT_AP){ apScreen(); return; }
   m2::radio::toneApply();
-  extSend("page ui");
   _started = true;
-  m2::P.show();
+  m2::P.show();                        /* сама шле «page pl» */
   lastDim = -1;
 }
 
@@ -254,7 +274,10 @@ void Nextion::loop(){
   /*  головний цикл: дотики плеєра, дії з меню, запити на відкриття, будильник, сон, ніч  */
   while(ptqt != ptqh){
     Touch t = ptq[ptqt]; ptqt = (ptqt + 1) % 16;
-    if(t.kind == 'P') m2::P.onPress(t.x, t.y);
+    if(t.kind == 'V') m2::P.onValue((uint8_t)t.x, (uint16_t)t.y, false);
+    else if(t.kind == 'W') m2::P.onValue((uint8_t)t.x, (uint16_t)t.y, true);
+    else if(t.kind == 'B') m2::P.onButton((uint8_t)t.x);
+    else if(t.kind == 'P') m2::P.onPress(t.x, t.y);
     else if(t.kind == 'M') m2::P.onDrag(t.x, t.y);
     else m2::P.onRelease(t.x, t.y);
   }

@@ -39,7 +39,8 @@ void setupOTA(){
 #endif
   ArduinoOTA
     .onStart([]() {
-      player.sendCommand({PR_STOP, 0});
+      player.lockOutput = true;    /* зупинка не має скидати «автостарт» */
+    player.sendCommand({PR_STOP, 0});
       display.putRequest(NEWMODE, UPDATING);
       telnet.printf("Start OTA updating %s\n", ArduinoOTA.getCommand() == U_FLASH?"firmware":"filesystem");
     })
@@ -68,7 +69,16 @@ void setupOTA(){
 }
 #endif
 
+/*  Пріоритети задач (ПОТУЖНЕ РАДІО: саме через них був «хрип»).
+    Головний цикл годує VS1053 даними — він має бути вищим за все наше:
+      23  Wi-Fi          (ядро IDF)
+      18  lwIP           (ядро IDF)
+       4  головний цикл  (loopTask: потік у VS1053)   ← ставимо тут
+       2  loopDspTask    (годинник, веб)
+       1  nxui           (екран Nextion)
+    Вище 10 не піднімаємо: задушимо мережу.  */
 void setup() {
+  vTaskPrioritySet(nullptr, 4);
   Serial.begin(115200);
   if(REAL_LEDBUILTIN!=255) pinMode(REAL_LEDBUILTIN, OUTPUT);
   if (yoradio_on_setup) yoradio_on_setup();
@@ -108,8 +118,11 @@ void setup() {
 void loop() {
   timekeeper.loop1();
   telnet.loop();
+  /*  Чергу плеєра треба розгрібати завжди: без мережі в неї однаково кладуть
+      і інтерфейс, і таймкіпер, а забита черга морозить того, хто посилає
+      (ПОТУЖНЕ РАДІО, «справжня причина зависань без мережі»).  */
+  player.loop();
   if (network.status == CONNECTED || network.status==SDREADY) {
-    player.loop();
 #if USE_OTA
     ArduinoOTA.handle();
 #endif

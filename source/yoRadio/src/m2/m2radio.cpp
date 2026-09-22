@@ -178,7 +178,27 @@ uint8_t     weatherIcon(){ return nxw::icon; }
 int         rssi(){ return WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127; }
 
 /*  ---- спектр: VS1053 без модуля аналізу — рівень гучності потоку ---- */
-void bands(float* out, uint8_t n){ for(uint8_t i = 0; i < n; i++) out[i] = 0; }
+/*  Смуги дає сам VS1053 (плагін VLSI): 0..31 кроком 3 дБ. Беремо вікно у 30 дБ під
+    найгучнішою смугою — інакше тиха станція малює порожній рядок, а гучна — суцільну стіну.
+    Опитуємо не частіше ніж раз на 50 мс: частіше чип і не рахує.  */
+void bands(float* out, uint8_t n){
+  static uint8_t cur[VS1053B_SA_MAX_BANDS];
+  static uint32_t last = 0;
+  static uint8_t got = 0;
+  static float ref = 10;                       /* плавуча стеля, у кроках по 3 дБ */
+  const uint32_t now = millis();
+  if(now - last >= 50){ last = now; got = player.readSpectrum(cur); }
+  if(!got){ for(uint8_t i = 0; i < n; i++) out[i] = 0; return; }
+  uint8_t mx = 0;
+  for(uint8_t i = 0; i < got; i++) if(cur[i] > mx) mx = cur[i];
+  ref = mx > ref ? mx : ref - 0.02f;           /* вгору одразу, вниз поволі */
+  if(ref < 8) ref = 8;
+  const float lo = ref - 10;                   /* вікно 10 кроків = 30 дБ */
+  for(uint8_t i = 0; i < n; i++){
+    float v = i < got ? (cur[i] - lo) / 10.0f : 0;
+    out[i] = v < 0 ? 0 : v > 1 ? 1 : v;
+  }
+}
 
 /*  ---- оновлення (перевірка GitHub — окремим кроком) ---- */
 const char* version(){ return PR_VERSION; }

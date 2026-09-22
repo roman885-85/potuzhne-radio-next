@@ -96,6 +96,12 @@ void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
         }
         strcpy(filePath, fileName.c_str());
         const char* fn = strrchr(filePath, '/') + 1;
+        /*  Службові файли й теки macOS і Windows: «._назва.mp3» — метадані
+            Finder, а не музика, але розширення те саме.  */
+        if (fn[0] == '.' || strcmp(fn, "System Volume Information") == 0 || strcmp(fn, "$RECYCLE.BIN") == 0) {
+          free(filePath);
+          continue;
+        }
         if (isDir) {
             if (levels && !_checkNoMedia(filePath)) {
                 listSD(plSDfile, plSDindex, filePath, levels - 1);
