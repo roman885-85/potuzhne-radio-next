@@ -407,6 +407,21 @@ void Nextion::selftest(){
     say(cpu == INT32_MIN || cpu < 80, "процесор екрана", "%ld%%", (long)cpu);
   }
 
+  /*  5а. що саме Nextion уміє в арифметиці — від цього залежить, де рахувати прокрутку.
+      Перевіряємо трьома кроками, кожен окремо: присвоєння змінної змінній, віднімання
+      двох змінних, і порівняння змінної з числом (це точно працює).  */
+  if(dp == 2){
+    extSend("d1.val=77"); extSend("vv.val=0"); delay(200);
+    extSend("vv.val=d1.val"); delay(200);
+    const int32_t asgn = ask("vv.val");
+    say(asgn == 77, "присвоєння змінних", "vv=d1(77) → %ld", (long)asgn);
+
+    extSend("vq.val=100"); delay(150);
+    extSend("vq.val=vq.val-d1.val"); delay(200);
+    const int32_t sub = ask("vq.val");
+    say(sub == 23, "віднімання змінних", "100-d1(77) → %ld", (long)sub);
+  }
+
   /*  6. годинник  */
   say(m2::radio::timeOk(), "годинник", "%02d:%02d:%02d", m2::radio::now().tm_hour, m2::radio::now().tm_min, m2::radio::now().tm_sec);
 
