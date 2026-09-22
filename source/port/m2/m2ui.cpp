@@ -855,7 +855,7 @@ void Menu::_flush(){
       int16_t x0 = s * 16, w = (e - s) * 16;
       if(x0 + w > SW) w = SW - x0;
       int16_t y0 = r * 16, h = 16;
-      for(int rr = r + 1; rr < 15 && (rows[rr] & run) == run; rr++){ rows[rr] &= ~run; h += 16; }
+      for(int rr = r + 1; rr < 15 && h < 64 && (rows[rr] & run) == run; rr++){ rows[rr] &= ~run; h += 16; }   /* прохід — не вище 64: команд у ньому менше */
       if(y0 + h > SH) h = SH - y0;
       g.pass(x0, y0, w, h);
       _drawScene(g);

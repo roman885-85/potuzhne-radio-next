@@ -1,10 +1,8 @@
 /*  Нове меню: «Wi-Fi», «Відомі мережі», знайома мережа, підключення,
     клавіатура. Уся робота з радіомодулем — функціями старого меню (WB).  */
-#include "../core/options.h"
 #include "m2pages.h"
 #include "m2lang.h"
 #include "m2bridge.h"
-#include "../core/network.h"
 
 namespace m2 {
 
@@ -102,7 +100,7 @@ void WifiPage::tick(uint32_t now){
 void WifiPage::loop(uint32_t now){
   (void)now;
   /*  без мережі меню не мало виходу; радіо саме повернулось у збережену — відпускаємо на плеєр  */
-  if(WB::apLock() && network.status == CONNECTED){ WB::apUnlock(); M.close(); }
+  if(WB::apLock() && WB::staUp()){ WB::apUnlock(); M.close(); }
 }
 
 int16_t WifiPage::hit(int16_t x, int16_t y, Rect& r, uint8_t& radius){
@@ -261,7 +259,7 @@ class ConnectPage : public Page {
   public:
     const char* title() override { return WB::ssidBuf(); }
     void enter() override { WB::pages(true, true); _okAt = 0; _shown = -1; }
-    void leave() override { if(network.tryState() >= TRY_OK) network.tryClear(); WB::pages(true, false); }
+    void leave() override { if(WB::tryState() >= WB::TRY_OK) WB::tryClear(); WB::pages(true, false); }
     bool keepOpen() override { return true; }
     bool scrollable() override { return false; }
     bool canBack() override { return true; }
@@ -272,28 +270,28 @@ class ConnectPage : public Page {
     void tap(int16_t id, int16_t x, int16_t y) override;
   private:
     uint32_t _okAt = 0; int8_t _shown = -1;
-    static bool failed(){ n_Try_e s = network.tryState(); return s == TRY_BADPASS || s == TRY_NOTFOUND || s == TRY_FAIL; }
+    static bool failed(){ uint8_t s = WB::tryState(); return s == WB::TRY_BADPASS || s == WB::TRY_NOTFOUND || s == WB::TRY_FAIL; }
 };
 
 void ConnectPage::draw(Gfx& g){
-  n_Try_e st = network.tryState();
+  uint8_t st = WB::tryState();
   const float cx = SW / 2, cy = 58;
-  if(st == TRY_OK){
+  if(st == WB::TRY_OK){
     g.circle(cx, cy, 32, C_TEAL);
-    g.line(cx - 13, cy + 1, cx - 4, cy + 10, 5, C_BG); g.line(cx - 4, cy + 10, cx + 14, cy - 9, 5, C_BG);
+    g.shape("tick", cx, cy, C_BG);           /* галочка вирізом */
   }else if(failed()){
     g.circle(cx, cy, 32, Gfx::blend(C_BG, C_RED, 200));
-    g.line(cx - 11, cy - 11, cx + 11, cy + 11, 5, C_BG); g.line(cx - 11, cy + 11, cx + 11, cy - 11, 5, C_BG);
+    g.shape("cross", cx, cy, C_BG);          /* хрестик вирізом */
   }else{
     /*  крутиться, поки радіо пробує  */
-    float a = fmodf(millis() * 0.36f, 360.0f);
+    int a = ((int)(millis() * 0.36f) / 30 * 30) % 360;   /* кроками по 30°: кожен — готова картинка */
     g.arc(cx, cy, 28, 5, C_SURF2);
     g.arc(cx, cy, 28, 5, C_ACC, a, a + 100);
     icon(g, IC_WIFI, cx, cy - 2, C_TXT2, C_BG);
   }
-  const char* big = st == TRY_OK ? "Готово" : st == TRY_BADPASS ? "Невірний пароль" : st == TRY_NOTFOUND ? "Мережі не видно" : st == TRY_FAIL ? "Не вдалося" : "Підключаюсь…";
-  const char* sub = st == TRY_OK ? WB::ip() : st == TRY_BADPASS ? "перевірте й введіть ще раз" : st == TRY_NOTFOUND ? "вона зникла з ефіру" : st == TRY_FAIL ? "мережа не відповідає" : "це займає кілька секунд";
-  g.text(SW / 2, 122, big, F_MID, st == TRY_OK ? C_TEAL : (failed() ? C_TXT : C_TXT), AL_C, CWID);
+  const char* big = st == WB::TRY_OK ? "Готово" : st == WB::TRY_BADPASS ? "Невірний пароль" : st == WB::TRY_NOTFOUND ? "Мережі не видно" : st == WB::TRY_FAIL ? "Не вдалося" : "Підключаюсь…";
+  const char* sub = st == WB::TRY_OK ? WB::ip() : st == WB::TRY_BADPASS ? "перевірте й введіть ще раз" : st == WB::TRY_NOTFOUND ? "вона зникла з ефіру" : st == WB::TRY_FAIL ? "мережа не відповідає" : "це займає кілька секунд";
+  g.text(SW / 2, 122, big, F_MID, st == WB::TRY_OK ? C_TEAL : (failed() ? C_TXT : C_TXT), AL_C, CWID);
   g.text(SW / 2, 142, sub, F_ROW, C_TXT2, AL_C, CWID);
   if(failed()){
     int16_t w = (CWID - 10) / 2;
@@ -306,15 +304,15 @@ void ConnectPage::draw(Gfx& g){
 
 void ConnectPage::tick(uint32_t now){
   (void)now;
-  int8_t st = (int8_t)network.tryState();
+  int8_t st = (int8_t)WB::tryState();
   if(st != _shown){ _shown = st; M.invalAll(); }
-  if(!failed() && st != TRY_OK) M.inval(Rect(SW / 2 - 40, 20, 80, 80));
+  if(!failed() && st != WB::TRY_OK) M.inval(Rect(SW / 2 - 40, 20, 80, 80));
 }
 
 void ConnectPage::loop(uint32_t now){
-  if(network.tryState() == TRY_OK && !_okAt){ WB::saveCurrent(); _okAt = now; }
+  if(WB::tryState() == WB::TRY_OK && !_okAt){ WB::saveCurrent(); _okAt = now; }
   /*  вийшло — трохи показуємо адресу й повертаємось на плеєр  */
-  if(_okAt && now - _okAt > 1800){ _okAt = 0; WB::apUnlock(); network.tryClear(); M.close(); }
+  if(_okAt && now - _okAt > 1800){ _okAt = 0; WB::apUnlock(); WB::tryClear(); M.close(); }
 }
 
 int16_t ConnectPage::hit(int16_t x, int16_t y, Rect& r, uint8_t& radius){
@@ -327,7 +325,7 @@ int16_t ConnectPage::hit(int16_t x, int16_t y, Rect& r, uint8_t& radius){
 void ConnectPage::tap(int16_t id, int16_t x, int16_t y){
   (void)x; (void)y;
   if(!failed()) return;
-  network.tryClear();
+  WB::tryClear();
   if(id == 0){
     snprintf(s_kbdTitle, sizeof(s_kbdTitle), tr("Пароль: %s"), WB::ssidBuf());
     kbdOpen(WB::passBuf(), WB::passCap(), true, s_kbdTitle, afterPass);
@@ -426,7 +424,7 @@ void KbdPage::draw(Gfx& g){
     if(pass){
       g.box(SW - 52, 2, 46, 34, R_BTN, show ? C_ACC : C_SURF);
       icon(g, IC_EYE, SW - 29, 19, show ? C_ACCTXT : C_TXT2, show ? C_ACC : C_SURF);
-      if(!show) g.line(SW - 38, 28, SW - 20, 10, 1.8f, C_TXT2);
+      if(!show) g.shape("strike", SW - 29, 19, C_TXT2);
     }
   }
   /*  клавіші  */

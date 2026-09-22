@@ -70,13 +70,16 @@ static void layer(uint8_t k, float x0, float y0, float x1, float y1, float r, ui
   l.k = k; l.x0 = x0; l.y0 = y0; l.x1 = x1; l.y1 = y1; l.r = r; l.c = c; l.pic = pic; l.fn = fn;
 }
 
-/*  колір і картинка під точкою екрана; pic = 255 — суцільний  */
-static uint16_t under(float x, float y, uint8_t* pic){
+/*  колір і картинка під точкою екрана; pic = 255 — суцільний; skip — не зважати на цей шар,
+    idx — який шар знайшовся (-1 — жоден)  */
+static uint16_t under(float x, float y, uint8_t* pic, int skip = -1, int* idx = nullptr){
+  if(idx) *idx = -1;
   for(int i = (int)s_nl - 1; i >= 0; i--){
+    if(i == skip) continue;
     const Layer& l = s_lay[i];
     if(l.k == L_CIRC){
       float dx = x - l.x0, dy = y - l.y0;
-      if(dx * dx + dy * dy <= l.r * l.r){ if(pic) *pic = 255; return l.c; }
+      if(dx * dx + dy * dy <= l.r * l.r){ if(pic) *pic = 255; if(idx) *idx = i; return l.c; }
       continue;
     }
     if(x < l.x0 || y < l.y0 || x >= l.x1 || y >= l.y1) continue;
@@ -87,6 +90,7 @@ static uint16_t under(float x, float y, uint8_t* pic){
       float dx = x - cx, dy = y - cy;
       if(dx * dx + dy * dy > l.r * l.r) continue;
     }
+    if(idx) *idx = i;
     if(l.k == L_PIC){ if(pic) *pic = l.pic; return l.fn ? l.fn((int16_t)x, (int16_t)y) : l.c; }
     if(pic) *pic = 255;
     return l.c;
@@ -99,17 +103,47 @@ uint16_t Gfx::bgAt(float x, float y){ return under(x + _ox, y + _oy, nullptr); }
 
 void Gfx::bgKey(char* out, size_t cap, float sx, float sy, int16_t dx, int16_t dy, int16_t w, int16_t h){
   uint8_t pic = 255;
-  uint16_t c = under(sx, sy, &pic);
-  if(_exact && pic != 255 && w > 0){
-    /*  поле цілком на одноколірній частині картинки — ключ за кольором (менше картинок)  */
-    const float px[5] = { dx / 1.5f, (dx + w - 1) / 1.5f, dx / 1.5f, (dx + w - 1) / 1.5f, (dx + w / 2) / 1.5f };
-    const float py[5] = { dy * 0.75f, dy * 0.75f, (dy + h - 1) * 0.75f, (dy + h - 1) * 0.75f, (dy + h / 2) * 0.75f };
-    bool same = true;
-    for(uint8_t i = 0; i < 5 && same; i++){ uint8_t pp = 255; if(under(px[i], py[i], &pp) != c || pp != pic) same = false; }
-    if(same) pic = 255;
+  int li = -1;
+  uint16_t c = under(sx, sy, &pic, -1, &li);
+  if(w <= 0){ snprintf(out, cap, ".%04X", c); return; }
+  /*  що під кутами поля  */
+  const float px[4] = { (dx + 0.5f) / 1.5f, (dx + w - 0.5f) / 1.5f, (dx + 0.5f) / 1.5f, (dx + w - 0.5f) / 1.5f };
+  const float py[4] = { (dy + 0.5f) * 0.75f, (dy + 0.5f) * 0.75f, (dy + h - 0.5f) * 0.75f, (dy + h - 0.5f) * 0.75f };
+  bool same = true, anyPic = pic != 255;
+  for(uint8_t i = 0; i < 4; i++){ uint8_t pp = 255; uint16_t cc = under(px[i], py[i], &pp); if(pp != 255) anyPic = true; if(cc != c || pp != pic) same = false; }
+  if(same){ snprintf(out, cap, ".%04X", c); return; }          /* поле на одному кольорі */
+  if(_exact && anyPic){
+    /*  нерухомий елемент на картинці — точний шматок тла  */
+    uint8_t pp = pic;
+    if(pp == 255) for(uint8_t i = 0; i < 4 && pp == 255; i++) under(px[i], py[i], &pp);
+    snprintf(out, cap, ".P%u_%d_%d", pp, dx, dy); return;
   }
-  if(_exact && pic != 255) snprintf(out, cap, ".P%u_%d_%d", pic, dx, dy);
-  else snprintf(out, cap, ".%04X", c);
+  /*  Під центром — фігура (плашка, квадрат, коло), що не вкриває все поле: під кутами — інший
+      колір. Ключ описує обидва: «.K<тло>_R_<x>_<y>_<w>_<h>_<r>_<колір>» чи «…_O_<cx·4>_<cy·4>_<r·4>_<колір>»
+      (пікселі Nextion від лівого верхнього кута поля) — картинку намалюють на точній копії.  */
+  if(li >= 0){
+    const Layer& l = s_lay[li];
+    uint16_t base = 0; bool ok = true; uint8_t pp = 255;
+    for(uint8_t i = 0; i < 4 && ok; i++){
+      int bi = -1; uint16_t bc = under(px[i], py[i], &pp, li, &bi);
+      if(pp != 255) ok = false;
+      if(i == 0) base = bc; else if(bc != base) ok = false;
+    }
+    if(ok && l.k == L_RRECT){
+      const int16_t x0 = DX(l.x0), y0 = DY(l.y0), x1 = DX(l.x1), y1 = DY(l.y1);
+      int16_t R = (int16_t)lroundf(DS(l.r)); if(R * 2 > x1 - x0) R = (x1 - x0) / 2; if(R * 2 > y1 - y0) R = (y1 - y0) / 2;
+      snprintf(out, cap, ".K%04X_R_%d_%d_%d_%d_%d_%04X", base, x0 - dx, y0 - dy, x1 - x0, y1 - y0, R, l.c); return;
+    }
+    if(ok && l.k == L_RECT){
+      const int16_t x0 = DX(l.x0), y0 = DY(l.y0), x1 = DX(l.x1), y1 = DY(l.y1);
+      snprintf(out, cap, ".K%04X_R_%d_%d_%d_%d_0_%04X", base, x0 - dx, y0 - dy, x1 - x0, y1 - y0, l.c); return;
+    }
+    if(ok && l.k == L_CIRC){
+      snprintf(out, cap, ".K%04X_O_%d_%d_%d_%04X", base, (int)lroundf((l.x0 * 1.5f - dx) * 4), (int)lroundf((l.y0 * (4.0f / 3.0f) - dy) * 4),
+               (int)lroundf(DS(l.r) * 4), l.c); return;
+    }
+  }
+  snprintf(out, cap, ".%04X", c);
 }
 
 /*  =================== команди =================== */
@@ -133,7 +167,7 @@ static void devClip(int16_t cx0, int16_t cy0, int16_t cx1, int16_t cy1){
 }
 
 static Cmd* addCmd(){
-  if(s_nc >= NC) return nullptr;
+  if(s_nc >= NC){ if(Gfx::onMissing) Gfx::onMissing("!переповнення команд проходу"); return nullptr; }
   Cmd* c = &s_cmd[s_nc++];
   memset(c, 0, sizeof(Cmd));
   return c;
@@ -157,6 +191,7 @@ void Gfx::pass(int16_t x, int16_t y, int16_t w, int16_t h){
   _px0 = x; _py0 = y; _px1 = x + w; _py1 = y + h;
   _ox = 0; _oy = 0;
   unclip();
+  _ly0 = -2000; _ly1 = 2000; _nl = 0;
   s_nc = 0; s_np = 0; s_nl = 0;
 }
 
@@ -245,7 +280,7 @@ bool Gfx::sprite(const char* key, float cx, float cy){
 
 bool Gfx::shape(const char* name, float cx, float cy, uint16_t c){
   const int16_t dx = (int16_t)floorf((cx + _ox) * 1.5f - 20 + 0.5f), dy = (int16_t)floorf((cy + _oy) * (4.0f / 3.0f) - 20 + 0.5f);
-  char bk[24], key[48];
+  char bk[48], key[72];
   bgKey(bk, sizeof(bk), cx + _ox, cy + _oy, dx, dy, 40, 40);
   snprintf(key, sizeof(key), "N%s.%04X%s", name, c, bk);
   return sprite(key, cx, cy);
@@ -270,7 +305,7 @@ void Gfx::_box(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t r, uint16_t c
   for(uint8_t i = 0; i < 4; i++){
     /*  кут поза обрізанням — не шукаємо й не малюємо  */
     if(ax[i] >= s_dc1 || ay[i] >= s_dcy1 || ax[i] + R <= s_dc0 || ay[i] + R <= s_dcy0) continue;
-    char key[40], bk[24];
+    char key[64], bk[48];
     bgKey(bk, sizeof(bk), px[i], py[i], (int16_t)(ax[i] - qx[i]), (int16_t)(ay[i] - qy[i]), 2 * R, 2 * R);
     snprintf(key, sizeof(key), "R%d.%04X%s", R, c, bk);
     if(!_sprite(key, ax[i], ay[i], qx[i], qy[i], R, R)){ devClip(_cx0, _cy0, _cx1, _cy1); addRect(K_FILL, ax[i], ay[i], R, R, c); }
@@ -316,7 +351,7 @@ void Gfx::circle(float cx, float cy, float r, uint16_t c){
       if(l.k == L_CIRC){ float ddx = sx - l.x0, ddy = sy - l.y0; if(ddx * ddx + ddy * ddy <= l.r * l.r) break; }
     }
   }
-  char bk[24], key[56];
+  char bk[48], key[80];
   if(ring){
     const float Rd = DS(ring->r);
     const int16_t S2 = 2 * (int16_t)ceilf(Rd) + 2;
@@ -347,7 +382,7 @@ void Gfx::arc(float cx, float cy, float r, float wd, uint16_t c, float a0, float
   const float rd = DS(r), wdd = DS(wd);
   const int16_t S = 2 * (int16_t)ceilf(rd + wdd / 2) + 2;
   const int16_t dx = (int16_t)floorf(sx * 1.5f - S / 2.0f + 0.5f), dy = (int16_t)floorf(sy * (4.0f / 3.0f) - S / 2.0f + 0.5f);
-  char bk[24], key[56];
+  char bk[48], key[80];
   bgKey(bk, sizeof(bk), sx, sy, dx, dy, S, S);
   snprintf(key, sizeof(key), "A%d.%d.%d.%d.%04X%s", (int)lroundf(rd * 4), (int)lroundf(wdd * 4), (int)lroundf(a0), (int)lroundf(a1), c, bk);
   _sprite(key, dx, dy, 0, 0, 0, 0);
@@ -424,16 +459,39 @@ int16_t Gfx::text(int16_t x, int16_t baseline, const char* s, const GFXfont* f, 
   int16_t top = dyb - f->asc;
   devClip(_cx0, _cy0, _cx1, _cy1);
   if(top >= s_dcy1 || top + f->h <= s_dcy0 || pen >= s_dc1 || pen + w <= s_dc0 || n == 0) return wv;
+  /*  виходить за межі, які задала сторінка (під шапку, за край барабана) — не малюємо  */
+  {
+    const int16_t ga = f->asc > 2 ? f->asc - (int16_t)lroundf(f->h * 0.05f) : f->asc;   /* верх літер трохи нижче верху клітинки */
+    const int16_t gy0 = dyb - ga, gy1 = dyb + (f->h - f->asc) / 2;
+    if(gy0 < DY(_ly0) || gy1 > DY(_ly1)) return wv;
+  }
   /*  поле тексту трохи ширше за літери (виступи j, ї); текст — по центру поля  */
   int16_t pad = 3;
   if(pen - pad < 0) pad = pen;
   if(pen + w + pad > 480) pad = 480 - pen - w;
   if(pad < 0) pad = 0;
+  /*  Поле по висоті — лише там, де в цьому рядку є фарба (плюс піксель), симетрично довкола
+      середини клітинки (Nextion ставить клітинку посередині поля): поле не залазить на сусідні
+      фігури — двокрапка барабана, підпис на вузькій плашці.  */
+  int16_t i0 = f->h, i1 = -1;
+  for(uint16_t i = 0; i < n; i++){
+    int16_t ci = cpIndex(cp[i]); if(ci < 0) continue;
+    uint8_t a = f->ink[ci * 2], b = f->ink[ci * 2 + 1];
+    if(a == 255) continue;
+    if(a < i0) i0 = a; if(b > i1) i1 = b;
+  }
+  int16_t bt = top, bh = f->h;
+  if(i1 >= i0){
+    const float mid = f->h / 2.0f;
+    float half = mid - (i0 - 1); if(i1 + 2 - mid > half) half = i1 + 2 - mid;
+    int16_t hh = (int16_t)ceilf(half);
+    if(hh * 2 < f->h){ bh = hh * 2 + (f->h & 1); bt = top + (f->h - bh) / 2; }
+  }
   uint8_t pic = 255;
-  uint16_t bg = under((pen + w / 2.0f) / 1.5f, (top + f->h / 2.0f) * 0.75f, &pic);
+  uint16_t bg = under((pen + w / 2.0f) / 1.5f, (bt + bh / 2.0f) * 0.75f, &pic);
   Cmd* cm = addCmd();
   if(!cm) return wv;
-  cm->k = K_TEXT; cm->x = pen - pad; cm->y = top; cm->w = w + 2 * pad; cm->h = f->h;
+  cm->k = K_TEXT; cm->x = pen - pad; cm->y = bt; cm->w = w + 2 * pad; cm->h = bh;
   cm->font = f->id; cm->c = c;
   if(pic != 255){ cm->sta = 0; cm->bg = pic; } else { cm->sta = 1; cm->bg = bg; }
   cm->str = poolUtf8(cp, n);
@@ -443,7 +501,7 @@ int16_t Gfx::text(int16_t x, int16_t baseline, const char* s, const GFXfont* f, 
 
 /*  =================== віддати команди =================== */
 struct R4 { int16_t x0, y0, x1, y1; };
-static const uint16_t NO = 320;
+static const uint16_t NO = 384;
 static R4 s_occ[NC];
 static Cmd s_out[NO];              /* видиме, у зворотному порядку */
 
@@ -483,6 +541,7 @@ void Gfx::flush(){
       }
       if(gaveUp){ np = 1; parts[0] = r; }
     }
+    if(nout + np > NO && Gfx::onMissing) Gfx::onMissing("!переповнення виводу проходу");
     for(uint8_t p = 0; p < np && nout < NO; p++){
       Cmd& d = s_out[nout++];
       d = c;
@@ -498,7 +557,7 @@ void Gfx::flush(){
     switch(c.k){
       case K_FILL: snprintf(b, sizeof(b), "fill %d,%d,%d,%d,%u", c.x, c.y, c.w, c.h, c.c); break;
       case K_PIC:  snprintf(b, sizeof(b), "xpic %d,%d,%d,%d,%d,%d,%u", c.x, c.y, c.w, c.h, c.sx, c.sy, c.pic); break;
-      default:     snprintf(b, sizeof(b), "xstr %d,%d,%d,%d,%u,%u,%u,1,0,%u,\"%s\"", c.x, c.y, c.w, c.h, c.font, c.c, c.bg, c.sta, s_pool + c.str); break;
+      default:     snprintf(b, sizeof(b), "xstr %d,%d,%d,%d,%u,%u,%u,1,1,%u,\"%s\"", c.x, c.y, c.w, c.h, c.font, c.c, c.bg, c.sta, s_pool + c.str); break;
     }
     nxSink->cmd(b);
   }

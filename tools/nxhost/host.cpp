@@ -30,9 +30,6 @@ bool    bridgeClock(char* out, uint8_t cap, uint8_t& minute){ snprintf(out, cap,
 void    bridgeClosed(){}
 void    bridgeFade(uint16_t){}
 uint16_t bridgeBright(){ return 100; }
-void stationsPoll(){}
-void stationsRequest(){}
-volatile uint8_t afterClose = 0;
 }
 using namespace m2;
 
@@ -87,6 +84,21 @@ int main(int argc, char** argv){
     for(int w = 0; w <= 8; w++) if(!strcmp(v, (std::string("-w") + char('0' + w)).c_str())) mock::wicon = w;
     P.show();
     for(int i = 0; i < 20; i++){ P.render(); s_ms += 50; }
+  }else if(scen[0] == 'm' && scen[1] == ':'){
+    /*  m:<сторінка>[:прокрутка] — сторінка меню  */
+    const char* nm = scen + 2;
+    struct { const char* n; Page* p; } pages[] = {
+      { "pult", &pgPult }, { "settings", &pgSettings }, { "screen", &pgScreen }, { "alarm", &pgAlarm }, { "tz", &pgTz },
+      { "fav", &pgFav }, { "sermons", &pgSermons }, { "info", &pgInfo }, { "power", &pgPower }, { "stations", &pgStations },
+      { "wifi", &pgWifi }, { "saved", &pgSaved }, { "connect", &pgConnect }, { "sound", &pgEq }, { "devsnd", &pgDevSnd },
+      { "update", &pgUpdate }, { "nightfrom", &pgNightFrom }, { "net", &pgNet } };
+    Page* pg = nullptr; int sc = 0;
+    for(auto& e : pages){ size_t l = strlen(e.n); if(!strncmp(nm, e.n, l) && (nm[l] == 0 || nm[l] == ':')){ pg = e.p; if(nm[l] == ':') sc = atoi(nm + l + 1); } }
+    if(!strncmp(nm, "kbd", 3)){ static char buf[65] = "vidrodzhennia"; kbdOpen(buf, sizeof(buf), true, "Пароль: my_home", nullptr); }
+    else if(!pg){ fprintf(stderr, "немає сторінки %s\n", nm); return 1; }
+    else M.open(pg);
+    for(int i = 0; i < 40; i++){ M.render(); M.loop(); s_ms += 20; }
+    if(sc){ M.setScroll(sc); for(int i = 0; i < 10; i++){ M.render(); s_ms += 20; } }
   }else if(!strcmp(scen, "list")){
     M.open(&testPage);
     for(int i = 0; i < 60; i++){ M.render(); s_ms += 20; }

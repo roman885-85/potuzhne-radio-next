@@ -1,6 +1,5 @@
-/*  Нове меню: доступ до того, що вже вміє старе меню (Wi-Fi) і решта радіо.
-    Логіку мереж навмисно не переписано: пошук, спроби, збережений список —
-    ті самі функції YoMenu, що вже перевірені на живих мережах.  */
+/*  Меню: Wi-Fi. У ПОТУЖНОГО це функції старого меню YoMenu; тут — m2wifi.cpp
+    (мережі yoRadio: /data/wifi.csv, пошук і спроби через WiFi), на Mac — підставні.  */
 #ifndef m2bridge_h
 #define m2bridge_h
 #include <Arduino.h>
@@ -8,6 +7,9 @@
 namespace m2 {
 
 struct WB {
+  enum : uint8_t { TRY_IDLE = 0, TRY_RUN, TRY_OK, TRY_BADPASS, TRY_NOTFOUND, TRY_FAIL };
+  static uint8_t     tryState();          /* хід спроби підключитись (сторінка «Підключення») */
+  static void        tryClear();
   static bool        staUp();
   static const char* curSsid();
   static int8_t      rssi();

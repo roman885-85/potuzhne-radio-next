@@ -59,6 +59,56 @@ const char* otaNotes(){ return "# Екран Nextion: меню ПОТУЖНОГ�
 const char* otaError(){ return "не вдалося завантажити прошивку"; }
 void        otaInstall(){ otaInst = true; }
 void        restart(){}
+void        otaCheck(bool){}
+bool        otaStale(){ return false; }
+bool        otaChecking(){ return false; }
+uint16_t    stationCount(){ return 36; }
+bool        stationRow(uint16_t i, char* n, size_t nc, char* u, size_t uc){
+  static const char* N[] = { "NRJ Ukraine", "Lounge FM", "Прямий FM", "DJFM Dance", "Хіт FM", "Радіо Релакс", "Kiss FM", "Radio ROKS",
+                             "Шансон", "Українське радіо", "Radio Swiss Jazz", "Классик FM", "Радіо Відродження", "Europa Plus" };
+  static const char* H[] = { "cast.mediaonline.net.ua", "online.hitfm.ua", "cast.brg.ua", "stream.radioswissjazz.ch", "radio.vidrodzhennia.org" };
+  snprintf(n, nc, "%s", N[i % 14]); snprintf(u, uc, "http://%s/st%u", H[i % 5], (unsigned)i); return true; }
+int16_t     currentStation(){ return 1; }
+void        playStation(uint16_t){}
+uint16_t    sermonsCount(){ return 24; }
+bool        sermonsLoading(){ return false; }
+uint16_t    sermonsLoaded(){ return 0; }
+const char* sermonsError(){ return ""; }
+uint32_t    sermonsVersion(){ return 1; }
+int16_t     sermonsPlaying(){ return 2; }
+bool        sermonAt(uint16_t i, SermonInfo& o){
+  static const char* T[] = { "Благодать, що змінює серце", "Віра, яка перемагає світ", "Молитва в час випробувань", "Сім слів з хреста", "Надія, що не посоромить" };
+  static const char* P[] = { "Олександр Бараков", "Петро Коваль", "Іван Мельник" };
+  o.title = T[i % 5]; o.preacher = P[i % 3]; o.date = "2026-09-14"; o.dur = 2400 + i * 60; return true; }
+void        sermonsFetch(){}
+bool        sermonsPlay(uint16_t){ return true; }
+static bool s_bt = false;
+bool        btMode(){ return s_bt; }
+void        setBtMode(bool on){ s_bt = on; }
+static uint8_t s_br = 89;
+uint8_t     brightness(){ return s_br; }
+void        setBrightness(uint8_t v){ s_br = v; }
+static bool s_as = true, s_ai = true;
+bool        autostart(){ return s_as; }
+void        setAutostart(bool on){ s_as = on; }
+bool        audioInfo(){ return s_ai; }
+void        setAudioInfo(bool on){ s_ai = on; }
+int8_t      tzHour(){ return 3; }
+int8_t      tzMin(){ return 0; }
+void        setTz(int8_t, int8_t){}
+const char* build(){ return "22.09.2026"; }
+uint32_t    freeHeap(){ return 96 * 1024; }
+float       weatherPress(){ return 753; }
+int         weatherHum(){ return 60; }
+static int8_t s_tb = 6, s_tt = 2; static uint8_t s_bf = 1, s_tf = 2;
+int8_t      toneBass(){ return s_tb; }
+int8_t      toneTreble(){ return s_tt; }
+uint8_t     toneBassF(){ return s_bf; }
+uint8_t     toneTrebleF(){ return s_tf; }
+void        setTone(int8_t b, int8_t t, uint8_t bf, uint8_t tf){ s_tb = b; s_tt = t; s_bf = bf; s_tf = tf; }
+uint8_t     tonePreset(){ return 255; }
+void        setTonePreset(uint8_t){}
+void        sfxTest(uint8_t){}
 void        openStations(){}
 void        openMenu(){}
 void        openFav(){}

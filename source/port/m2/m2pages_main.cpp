@@ -1,24 +1,12 @@
-/*  Нове меню: «Меню» (пульт), «Параметри», «Екран», «Будильник», «Обране»,
-    «Проповіді», «Про радіо», «Живлення», «Часовий пояс».  */
-#include "../core/options.h"
+/*  Меню: «Меню» (пульт), «Параметри», «Екран», «Будильник», «Обране», «Проповіді», «Про радіо»,
+    «Живлення», «Часовий пояс» — з ПОТУЖНОГО РАДІО (src/m2/m2pages_main.cpp). Тут: без запису на
+    картку, мікрофона, батареї й колонок DLNA/AirPlay — замість них Bluetooth-колонка (режим із
+    перезапуском); логотипів немає — ініціали; звертання до радіо — m2radio.h.  */
 #include "m2pages.h"
 #include "m2bridge.h"
 #include "m2lang.h"
-#include <SPIFFS.h>
-#include "../core/config.h"
-#include "../core/player.h"
-#include "../core/network.h"
-#include "../core/timekeeper.h"
+#include "m2radio.h"
 #include "../extras/yoExtras.h"
-#include "../extras/yoDlna.h"
-#include "../extras/yoAirplay.h"
-#include "../extras/yoRecorder.h"
-#include "../extras/yoSermons.h"
-#include "../extras/yoLogos.h"
-#include "../extras/yoVersion.h"
-#include "../extras/yoOta.h"
-#include "../core/display.h"
-#include "esp_heap_caps.h"
 
 namespace m2 {
 
@@ -149,18 +137,17 @@ void PultPage::draw(Gfx& g){
         if(on) snprintf(b, sizeof(b), "%02u:%02u", extras.s.alarmH, extras.s.alarmM); else snprintf(b, sizeof(b), "вимк");
         break;
       case 2:
-        on = recorder.active(); dis = sdOff(); ic = IC_REC; lb = "Запис";
-        if(on){ uint32_t s = recorder.seconds(); snprintf(b, sizeof(b), "%u:%02u", (unsigned)(s / 60), (unsigned)(s % 60)); }
-        else snprintf(b, sizeof(b), dis ? "без картки" : "вимк");
+        on = radio::btMode(); ic = IC_SPEAKER; lb = "Колонка";
+        snprintf(b, sizeof(b), on ? "Bluetooth" : "вимк");
         break;
       default:
-        on = config.getMode() == PM_SDCARD; dis = sdOff(); ic = on ? IC_CARD : IC_RADIO; lb = on ? "Картка" : "Радіо";
+        on = radio::sdMode(); dis = sdOff(); ic = on ? IC_CARD : IC_RADIO; lb = on ? "Картка" : "Радіо";
         snprintf(b, sizeof(b), dis ? "лише радіо" : (on ? "з картки" : "з мережі"));
         break;
     }
-    uint16_t bg = on ? (i == 2 ? C_REC : C_ACC) : C_SURF;
-    uint16_t fg = on ? (i == 2 ? 0xFFFF : C_ACCTXT) : (dis ? C_TXT3 : C_TXT);
-    uint16_t sub = on ? (i == 2 ? 0xFFFF : RGB(80, 72, 30)) : C_TXT2;
+    uint16_t bg = on ? C_ACC : C_SURF;
+    uint16_t fg = on ? C_ACCTXT : (dis ? C_TXT3 : C_TXT);
+    uint16_t sub = on ? RGB(80, 72, 30) : C_TXT2;
     uint16_t icc = on ? fg : (dis ? C_TXT3 : C_ACC);
     g.box(r.x, r.y, r.w, r.h, 14, bg);
     icon(g, ic, r.x + 17, r.y + 17, icc, bg);
@@ -171,7 +158,7 @@ void PultPage::draw(Gfx& g){
   if(g.visible(MX, 76, CWID, 34)){
     g.box(MX, 76, CWID, 34, R_CARD, C_SURF);
     icon(g, IC_SUN, MX + 20, 93, C_TXT2, C_SURF);
-    float v = _briA < 0 ? config.store.brightness : _briA;
+    float v = _briA < 0 ? radio::brightness() : _briA;
     drawSlider(g, MX + 40, 93, CWID - 40 - 50, (v - 5) / 95.0f);
     snprintf(b, sizeof(b), "%d%%", (int)lroundf(v));
     g.text(MX + CWID - 12, 97, b, F_SMB, C_TXT, AL_R);
@@ -183,14 +170,14 @@ void PultPage::draw(Gfx& g){
   for(uint8_t i = 0; i < 8; i++){
     Rect r = card(i);
     if(!g.visible(r.x, r.y, r.w, r.h)) continue;
-    const bool upd = i == 6 && (ota.available() || ota.installing());
+    const bool upd = i == 6 && (radio::otaAvailable() || radio::otaInstalling());
     uint16_t col = upd ? C_ACC : COL[i];
     g.box(r.x, r.y, r.w, r.h, R_CARD, upd ? Gfx::blend(C_SURF, C_ACC, 40) : C_SURF);
     const int16_t cx = r.x + r.w / 2;
     g.box(cx - 11, r.y + 4, 22, 22, R_BADGE, col);
     icon(g, IC[i], cx, r.y + 15, col == C_ACC ? C_ACCTXT : 0xFFFF, col);
     if(upd) g.circle(cx + 12, r.y + 5, 4.5f, C_RED);            /* є нова версія */
-    g.text(cx, r.y + 36, upd && ota.installing() ? "іде…" : NAME[i], F_SMB, upd ? C_ACC : C_TXT, AL_C, r.w - 4);
+    g.text(cx, r.y + 36, upd && radio::otaInstalling() ? "іде…" : NAME[i], F_SMB, upd ? C_ACC : C_TXT, AL_C, r.w - 4);
   }
 }
 
@@ -199,14 +186,14 @@ void PultPage::tick(uint32_t now){
     _sigT = now;
     uint32_t s = extras.sleepMinutes() ? extras.sleepLeftSec() + 1 : 0;
     s = s * 31 + (extras.s.alarmOn ? extras.s.alarmH * 60 + extras.s.alarmM + 1 : 0);
-    s = s * 31 + (recorder.active() ? recorder.seconds() + 1 : 0);
-    s = s * 31 + config.getMode() * 2 + (extras.s.noSd ? 1 : 0);
+    s = s * 31 + (radio::btMode() ? 1 : 0);
+    s = s * 31 + (radio::sdMode() ? 2 : 0) + (extras.s.noSd ? 1 : 0);
     if(s != _sig){ _sig = s; M.inval(Rect(0, 0, SW, 70)); }
     static uint8_t updWas = 255;
-    const uint8_t upd = (ota.available() ? 1 : 0) + (ota.installing() ? 2 : 0);
+    const uint8_t upd = (radio::otaAvailable() ? 1 : 0) + (radio::otaInstalling() ? 2 : 0);
     if(upd != updWas){ updWas = upd; M.inval(card(6)); }
   }
-  float target = (_briDrag >= 0 && now < _briHold) ? _briDrag : config.store.brightness;
+  float target = (_briDrag >= 0 && now < _briHold) ? _briDrag : radio::brightness();
   if(_briA < 0) _briA = target;
   else if(fabsf(_briA - target) > 0.01f){
     _briA += (target - _briA) * 0.35f;
@@ -232,8 +219,7 @@ void PultPage::drag(int16_t id, int16_t x, int16_t y, bool end){
 
 void PultPage::value(int16_t id, int32_t v){
   if(id != 10) return;
-  config.store.brightness = (uint8_t)v;
-  config.setBrightness(true);
+  radio::setBrightness((uint8_t)v);
 }
 
 void PultPage::tap(int16_t id, int16_t x, int16_t y){
@@ -249,21 +235,19 @@ void PultPage::tap(int16_t id, int16_t x, int16_t y){
       break; }
     case 1: M.push(&pgAlarm); break;
     case 2:
-      if(extras.s.noSd){ M.toast("картку вимкнено в «Розробнику»"); break; }
-      if(recorder.active()){ recorder.stop(); M.toast("запис зупинено"); }
-      else if(!recorder.start()) M.toast(recorder.lastError());
-      else M.toast("пишу ефір на картку");
+      M.toast(radio::btMode() ? "перезапускаю радіо…" : "перезапускаю колонкою Bluetooth…");
+      radio::setBtMode(!radio::btMode());
       break;
     case 3:
-      if(extras.s.noSd){ M.toast("картку вимкнено в «Розробнику»"); break; }
-      config.changeMode();
+      if(extras.s.noSd){ M.toast("картку вимкнено"); break; }
+      radio::changeMode();
       M.close();
       break;
     case 10: value(10, briAt(x)); break;
     case 20: M.push(&pgStations); break;
     case 21: M.push(&pgFav); break;
     case 22:
-      if(!sermons.loading() && sermons.count() == 0) sermons.fetch();
+      if(!radio::sermonsLoading() && radio::sermonsCount() == 0) radio::sermonsFetch();
       M.push(&pgSermons); break;
     case 23: M.push(&pgEq); break;
     case 24: M.push(&pgScreen); break;
@@ -283,23 +267,14 @@ Page& pgPult = s_pult;
 
 /*  =================== «Параметри» =================== */
 static const char* vWifi(){ return WB::staUp() ? WB::curSsid() : "немає"; }
-static const char* vMic(){ return extras.s.micOn ? "увімк" : "вимк"; }
-static const char* vGest(){
-  const ExtStore& e = extras.s;
-  if(e.clapOn && e.knockOn) return "хлопки, стук";
-  if(e.clapOn) return "хлопки";
-  if(e.knockOn) return "стук";
-  return "вимк";
-}
-static const char* vPres(){ return (extras.s.sleepEar || extras.s.presWake || extras.s.presOff) ? "увімк" : "вимк"; }
-static const char* vTz(){ static char b[12]; snprintf(b, sizeof(b), "%+03d:%02d", config.store.tzHour, abs(config.store.tzMin)); return b; }
-static const char* vVer(){ return prVersion(); }
+static const char* vTz(){ static char b[12]; snprintf(b, sizeof(b), "%+03d:%02d", radio::tzHour(), abs(radio::tzMin())); return b; }
+static const char* vVer(){ return radio::version(); }
 static const char* vUpd(){
   static char b[40];
-  if(ota.installing()) return "іде…";
-  if(ota.available()){ snprintf(b, sizeof(b), tr("є %s"), ota.latest()); return b; }
-  if(ota.state() == OTA_CHECKING) return "перевіряю…";
-  return ota.latest()[0] ? "остання" : "";
+  if(radio::otaInstalling()) return "іде…";
+  if(radio::otaAvailable()){ snprintf(b, sizeof(b), tr("є %s"), radio::otaLatest()); return b; }
+  if(radio::otaChecking()) return "перевіряю…";
+  return radio::otaLatest()[0] ? "остання" : "";
 }
 
 /*  Назви мов навмисно не перекладаються: кожна написана сама собою, щоб її
@@ -309,54 +284,32 @@ static const char* const LANGS[] = { "Українська", "English" };
 static Item s_setItems[] = {
   iSection("МЕРЕЖА"),
   iNav("Wi-Fi", IC_WIFI, C_BLUE, vWifi, [](){ M.push(&pgWifi); }),
-  iSection("ГОЛОС І ЖЕСТИ"),
-  iNav("Мікрофон", IC_MIC, C_VIOLET, vMic, [](){ M.push(&pgMic); }),
-  iNav("Хлопки й стук", IC_HAND, C_VIOLET, vGest, [](){ M.push(&pgGest); }),
-  iNav("Присутність", IC_PERSON, C_VIOLET, vPres, [](){ M.push(&pgPres); }),
   iSection("СИСТЕМА"),
   iSeg("Мова", LANGS, 2, [](){ return (int32_t)extras.s.lang; },
        [](int32_t v){ extras.s.lang = (uint8_t)v; extras.changed(); langSet((uint8_t)v); M.invalAll(); }),
   iNav("Часовий пояс", IC_GLOBE, C_TEAL, vTz, [](){ M.push(&pgTz); }),
-  iSwitch("Автостарт", IC_START, C_TEAL, [](){ return (int32_t)(config.store.smartstart != 2); },
-          [](int32_t v){ config.saveValue(&config.store.smartstart, static_cast<uint8_t>(v ? 1 : 2)); }),
-  iSwitch("Інфо про потік", IC_INFO, C_TEAL, [](){ return (int32_t)config.store.audioinfo; },
-          [](int32_t v){ config.saveValue(&config.store.audioinfo, static_cast<bool>(v)); }),
-  iSwitch("Колонка DLNA", IC_SPEAKER, C_BLUE, [](){ return (int32_t)(dlna.on() ? 1 : 0); },
-          [](int32_t v){ dlna.setOn(v != 0); M.toast(v ? "радіо видно в мережі як колонку" : "колонку вимкнено"); }),
-  iNote([](){ return "телефон чи комп'ютер надсилає радіо доріжку\n(BubbleUPnP, VLC, «Передати на пристрій»)"; }, 36),
-  iSwitch("Колонка AirPlay", IC_SPEAKER, C_BLUE, [](){ return (int32_t)(airplay.on() ? 1 : 0); },
-          [](int32_t v){ airplay.setOn(v != 0); M.toast(v ? "радіо видно в AirPlay" : "AirPlay вимкнено"); }),
-  iNote([](){ return "iPhone, iPad і Mac грають на радіо будь-який звук\n(«Звук» у Пункті керування, кнопка AirPlay)"; }, 36),
+  iSwitch("Автостарт", IC_START, C_TEAL, [](){ return (int32_t)radio::autostart(); }, [](int32_t v){ radio::setAutostart(v != 0); }),
+  iSwitch("Інфо про потік", IC_INFO, C_TEAL, [](){ return (int32_t)radio::audioInfo(); }, [](int32_t v){ radio::setAudioInfo(v != 0); }),
+  iSection("КОЛОНКА"),
+  iSwitch("Bluetooth-колонка", IC_SPEAKER, C_BLUE, [](){ return (int32_t)radio::btMode(); },
+          [](int32_t v){ M.toast(v ? "перезапускаю колонкою Bluetooth…" : "перезапускаю радіо…"); radio::setBtMode(v != 0); }),
+  iNote([](){ return "радіо перезапуститься й чекатиме телефон:\nу Bluetooth — «ПОТУЖНЕ РАДІО»"; }, 36),
   iSection("РАДІО"),
+  iNav("Заставка й звуки", IC_SPLASH, C_PINK, nullptr, [](){ M.push(&pgDevSnd); }),
   iNav("Оновлення", IC_REFRESH, C_BLUE, vUpd, [](){ M.push(&pgUpdate); }),
   iNav("Про радіо", IC_INFO, C_GREY, vVer, [](){ M.push(&pgInfo); }),
   iNav("Живлення", IC_POWER, C_RED, nullptr, [](){ M.push(&pgPower); }),
-  iNav("Розробник", IC_CODE, C_ACC, nullptr, [](){ M.push(&pgDev); }),
 };
 static ListPage s_settings("Параметри", s_setItems, sizeof(s_setItems) / sizeof(s_setItems[0]));
 Page& pgSettings = s_settings;
 
 /*  =================== «Екран» =================== */
-static const char* const SAVE_LBL[5] = { "вимк", "10 с", "15 с", "30 с", "60 с" };
-static const char* const LED_LBL[3]  = { "вимк", "стан", "музика" };
 static const char* vNightFrom(){ static char b[8]; snprintf(b, sizeof(b), "%02u:%02u", extras.s.nightFrom / 2, (extras.s.nightFrom % 2) * 30); return b; }
 static const char* vNightTo(){ static char b[8]; snprintf(b, sizeof(b), "%02u:%02u", extras.s.nightTo / 2, (extras.s.nightTo % 2) * 30); return b; }
-static const char* vBattery(){
-  static char b[48];
-  uint16_t mv = extras.batMv();
-  if(extras.s.noBat)       snprintf(b, sizeof(b), "не показується");
-  else if(mv == 0)         snprintf(b, sizeof(b), "вимірюю…");
-  else if(mv < 2800)       snprintf(b, sizeof(b), "не знайдено");
-  else if(extras.onUsb())  snprintf(b, sizeof(b), tr("USB, %u.%02u В"), mv / 1000, (mv % 1000) / 10);
-  else                     snprintf(b, sizeof(b), tr("%d%%, %u.%02u В"), extras.batPct(), mv / 1000, (mv % 1000) / 10);
-  return b;
-}
-static bool nightOn(){ return extras.s.nightOn; }
 
 static Item s_scrItems[] = {
   iGap(4),
-  iSlider("Яскравість", 5, 100, [](){ return (int32_t)config.store.brightness; },
-          [](int32_t v){ config.store.brightness = (uint8_t)v; config.setBrightness(true); }, "%"),
+  iSlider("Яскравість", 5, 100, [](){ return (int32_t)radio::brightness(); }, [](int32_t v){ radio::setBrightness((uint8_t)v); }, "%"),
   iSection("НІЧНИЙ РЕЖИМ"),
   iSwitch("Нічний режим", IC_MOON, C_VIOLET, [](){ return (int32_t)extras.s.nightOn; },
           [](int32_t v){ extras.s.nightOn = v; extras.changed(); }),
@@ -364,12 +317,7 @@ static Item s_scrItems[] = {
   iNav("Кінець", IC_CLOCK, C_VIOLET, vNightTo, [](){ M.push(&pgNightTo); }),
   iSlider("Яскравість уночі", 0, 100, [](){ return (int32_t)extras.s.nightLevel; },
           [](int32_t v){ extras.s.nightLevel = (uint8_t)v; extras.changed(); }, "%"),
-  iSection("БАТАРЕЯ"),
-  iSeg("Без зарядника пригасити через", SAVE_LBL, 5, [](){ return (int32_t)extras.s.batSave; },
-       [](int32_t v){ extras.s.batSave = (uint8_t)v; extras.changed(); }),
-  iInfo("Стан батареї", vBattery),
-  iSection("СВІТЛОДІОД НА ПЛАТІ"),
-  iSeg("", LED_LBL, 3, [](){ return (int32_t)extras.s.ledMode; }, [](int32_t v){ extras.s.ledMode = (uint8_t)v; extras.changed(); }),
+  iNote([](){ return "уночі дотик ненадовго вмикає денну яскравість"; }, 24),
 };
 static ListPage s_screen("Екран", s_scrItems, sizeof(s_scrItems) / sizeof(s_scrItems[0]));
 Page& pgScreen = s_screen;
@@ -440,7 +388,7 @@ static const char* vAlarmNote(){
   static char b[96];
   int32_t m = extras.alarmInMin();
   char st[48];
-  if(config.getMode() == PM_WEB && config.station.name[0]) snprintf(st, sizeof(st), "%s", config.station.name);
+  if(!radio::sdMode() && radio::stationName()[0]) snprintf(st, sizeof(st), "%s", radio::stationName());
   else snprintf(st, sizeof(st), "%s", tr("остання станція"));
   if(!extras.s.alarmOn) snprintf(b, sizeof(b), tr("вимкнено · заграє %s"), st);
   else if(m < 0)        snprintf(b, sizeof(b), tr("час ще не відомий · заграє %s"), st);
@@ -505,7 +453,7 @@ class TzPage : public HalfHourPage {
     void enter() override {
       ListPage::enter();
       drum.top = 10; drum.h = 118; drum.n[0] = 27; drum.n[1] = 4; drum.label = tzLabel; drum.drag = false;
-      int8_t h = config.store.tzHour, m = config.store.tzMin;
+      int8_t h = radio::tzHour(), m = radio::tzMin();
       drum.setVal(0, h + 12); drum.setVal(1, abs(m) / 15);
       _tsent = (h + 12) * 4 + abs(m) / 15;
     }
@@ -520,17 +468,13 @@ class TzPage : public HalfHourPage {
     void value(int16_t id, int32_t v) override {
       if(id != 100){ ListPage::value(id, v); return; }
       int8_t h = (int8_t)(v / 4) - 12, m = (int8_t)((v % 4) * 15);
-      config.setTimezone(h, m);
-      if(strlen(config.store.sntp1) > 0)
-        configTime(h * 3600 + m * 60, config.getTimezoneOffset(), config.store.sntp1,
-                   strlen(config.store.sntp2) > 0 ? config.store.sntp2 : nullptr);
-      timekeeper.forceTimeSync = true;
+      radio::setTz(h, m);
     }
   private:
     int32_t _tsent = -1;
     static const char* tzLabel(uint8_t c, int16_t v){ static char b[6]; if(c) snprintf(b, sizeof(b), "%02d", v * 15); else snprintf(b, sizeof(b), "%+d", v - 12); return b; }
 };
-static const char* vNow(){ static char b[24]; strftime(b, sizeof(b), "%H:%M:%S", &network.timeinfo); return b; }
+static const char* vNow(){ static char b[24]; strftime(b, sizeof(b), "%H:%M:%S", &radio::now()); return b; }
 static Item s_tzItems[] = { iGap(136), iInfo("Зараз", vNow), iNote([](){ return "години від Гринвіча (Київ: +2 взимку, +3 влітку)"; }, 24) };
 static TzPage s_tz(s_tzItems, 3);
 Page& pgTz = s_tz;
@@ -539,8 +483,7 @@ Page& pgTz = s_tz;
 class FavPage : public Page {
   public:
     const char* title() override { return "Обране"; }
-    void enter() override;
-    void leave() override;
+    void enter() override { _sig = 0; }
     void draw(Gfx& g) override;
     void tick(uint32_t now) override;
     int16_t hit(int16_t x, int16_t y, Rect& r, uint8_t& radius) override;
@@ -548,11 +491,7 @@ class FavPage : public Page {
     bool hold(int16_t id) override;
     int16_t height() override { return 4 + 2 * 78 + 50 + 8; }
   private:
-    uint16_t* _logo[FAV_N] = { nullptr };
-    bool _logoOk[FAV_N] = { false };
-    volatile bool _reload = false;
     uint32_t _sig = 0, _sigT = 0;
-    void _load();
     static Rect cell(uint8_t i){ int16_t w = (CWID - 16) / 3; return Rect(MX + (i % 3) * (w + 8), 4 + (i / 3) * 78, w, 72); }
 };
 
@@ -561,23 +500,6 @@ static uint32_t crc32s(const char* s){
   for(; *s; s++){ c ^= (uint8_t)*s; for(uint8_t k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320 & (0 - (c & 1))); }
   return ~c;
 }
-
-void FavPage::_load(){
-  for(uint8_t i = 0; i < FAV_N; i++){
-    _logoOk[i] = false;
-    if(!extras.fav[i].url[0]) continue;
-    if(!_logo[i]) _logo[i] = (uint16_t*)heap_caps_malloc(LOGO_S * LOGO_S * 2, MALLOC_CAP_SPIRAM);
-    if(!_logo[i]) continue;
-    char path[28]; snprintf(path, sizeof(path), "/logo/%08x.565", (unsigned)crc32s(extras.fav[i].url));
-    if(!SPIFFS.exists(path)) continue;
-    File f = SPIFFS.open(path, "r");
-    if(f && f.size() == LOGO_S * LOGO_S * 2) _logoOk[i] = f.read((uint8_t*)_logo[i], LOGO_S * LOGO_S * 2) == LOGO_S * LOGO_S * 2;
-    if(f) f.close();
-  }
-}
-
-void FavPage::enter(){ _load(); _sig = 0; }
-void FavPage::leave(){ for(uint8_t i = 0; i < FAV_N; i++){ _logoOk[i] = false; } }
 
 void FavPage::draw(Gfx& g){
   int8_t playing = extras.favPlaying();
@@ -595,14 +517,7 @@ void FavPage::draw(Gfx& g){
     g.box(r.x, r.y, r.w, r.h, 14, C_SURF);
     if(on) g.frame(r.x, r.y, r.w, r.h, 14, C_ACC, 2);
     const int16_t ls = 34, lx = r.x + 9, ly = r.y + 9;
-    if(_logoOk[i] && _logo[i]){
-      /*  логотип 45×45 зменшуємо до 34×34 найближчим сусідом  */
-      static uint16_t* small = (uint16_t*)heap_caps_malloc(34 * 34 * 2, MALLOC_CAP_SPIRAM);
-      if(!small) continue;
-      for(int16_t yy = 0; yy < ls; yy++) for(int16_t xx = 0; xx < ls; xx++)
-        small[yy * ls + xx] = _logo[i][(yy * LOGO_S / ls) * LOGO_S + xx * LOGO_S / ls];
-      g.image(lx, ly, ls, ls, small, 8);
-    }else{
+    {
       static const uint16_t PAL[8] = { 0x3A8D, 0x5A4B, 0x2C6A, 0x6A28, 0x2B0F, 0x7A6C, 0x4B09, 0x31CC };
       uint16_t c = PAL[crc32s(f.url) & 7];
       g.box(lx, ly, ls, ls, 8, c);
@@ -633,7 +548,7 @@ void FavPage::tick(uint32_t now){
   if(now - _sigT < 300) return;
   _sigT = now;
   uint32_t s = (uint32_t)extras.favPlaying() + 7 + (extras.s.favHide ? 1000 : 0);
-  for(uint8_t i = 0; i < FAV_N; i++){ s = s * 31 + (uint8_t)extras.fav[i].url[0] + (_logoOk[i] ? 3 : 0); s = s * 31 + crc32s(extras.fav[i].name); }
+  for(uint8_t i = 0; i < FAV_N; i++){ s = s * 31 + (uint8_t)extras.fav[i].url[0]; s = s * 31 + crc32s(extras.fav[i].name); }
   if(s != _sig){ _sig = s; M.inval(Rect(0, 0, SW, height())); }
 }
 
@@ -652,7 +567,7 @@ void FavPage::tap(int16_t id, int16_t x, int16_t y){
     if(extras.favPlay(id)) M.close();
     else M.toast("цієї станції вже нема в списку");
   }else{
-    if(extras.favSetCurrent(id)){ M.toast("додано в обране"); _load(); }
+    if(extras.favSetCurrent(id)) M.toast("додано в обране");
     else M.toast("спершу увімкніть радіостанцію");
   }
 }
@@ -672,7 +587,7 @@ class SermPage : public Page {
   public:
     const char* title() override { return "Проповіді"; }
     void enter() override { _ver = 0xFFFFFFFF; _jump = true; }
-    int16_t height() override { uint16_t n = sermons.count(); return n ? 6 + n * RH + 10 : CH; }
+    int16_t height() override { uint16_t n = radio::sermonsCount(); return n ? 6 + n * RH + 10 : CH; }
     void draw(Gfx& g) override;
     void tick(uint32_t now) override;
     int16_t hit(int16_t x, int16_t y, Rect& r, uint8_t& radius) override;
@@ -683,53 +598,52 @@ class SermPage : public Page {
 };
 
 void SermPage::draw(Gfx& g){
-  uint16_t n = sermons.count();
+  uint16_t n = radio::sermonsCount();
   if(!n){
     g.box(MX, 40, CWID, 110, R_CARD, C_SURF);
     icon(g, IC_CROSS, SW / 2, 72, C_VIOLET, C_SURF);
     char b[48];
-    if(sermons.loading()){
-      if(sermons.loadedSoFar()) snprintf(b, sizeof(b), tr("завантажую з сайту… %u"), sermons.loadedSoFar());
+    if(radio::sermonsLoading()){
+      if(radio::sermonsLoaded()) snprintf(b, sizeof(b), tr("завантажую з сайту… %u"), radio::sermonsLoaded());
       else snprintf(b, sizeof(b), "завантажую з сайту…");
       g.text(SW / 2, 110, b, F_ROW, C_TXT, AL_C, CWID - 20);
     }else{
-      g.text(SW / 2, 106, sermons.error()[0] ? sermons.error() : "список порожній", F_ROW, C_TXT, AL_C, CWID - 20);
+      g.text(SW / 2, 106, radio::sermonsError()[0] ? radio::sermonsError() : "список порожній", F_ROW, C_TXT, AL_C, CWID - 20);
       g.text(SW / 2, 128, "торкніться, щоб завантажити", F_SM, C_ACC, AL_C);
     }
     return;
   }
   int16_t first = (-g.oy() + HDR) / RH - 1; if(first < 0) first = 0;
-  int16_t play = sermons.playing();
+  int16_t play = radio::sermonsPlaying();
   for(int16_t i = first; i < (int16_t)n && i < first + 7; i++){
     int16_t y = 6 + i * RH;
     if(!g.visible(MX, y, CWID, RH)) continue;
-    const Sermon* s = sermons.at(i);
-    if(!s) continue;
+    radio::SermonInfo s;
+    if(!radio::sermonAt(i, s)) continue;
     bool on = i == play;
     drawCard(g, MX, y, CWID, RH, i == 0, i == (int16_t)n - 1, C_SURF);
     if(i) g.fill(MX + 50, y, CWID - 50, 1, C_LINE);
     g.box(MX + 12, y + 12, 28, 28, R_BADGE, on ? C_ACC : C_SURF2);
     if(on) icon(g, IC_WAVE, MX + 26, y + 26, C_ACCTXT, C_ACC);
     else icon(g, IC_PLAY, MX + 27, y + 26, C_TXT2, C_SURF2);
-    g.text(MX + 50, y + 22, s->title, F_ROW, on ? C_ACC : C_TXT, AL_L, CWID - 62);
+    g.text(MX + 50, y + 22, s.title, F_ROW, on ? C_ACC : C_TXT, AL_L, CWID - 62);
     char b[96];
-    if(s->dur) snprintf(b, sizeof(b), tr("%s · %s · %u хв"), s->preacher, s->date, (unsigned)((s->dur + 30) / 60));
-    else snprintf(b, sizeof(b), "%s · %s", s->preacher, s->date);
+    if(s.dur) snprintf(b, sizeof(b), tr("%s · %s · %u хв"), s.preacher, s.date, (unsigned)((s.dur + 30) / 60));
+    else snprintf(b, sizeof(b), "%s · %s", s.preacher, s.date);
     g.text(MX + 50, y + 40, b, F_SM, C_TXT2, AL_L, CWID - 62);
   }
 }
 
 void SermPage::tick(uint32_t now){
   (void)now;
-  uint32_t v = sermons.version();
-  bool ld = sermons.loading();
-  uint16_t got = sermons.loadedSoFar();
-  int16_t pl = sermons.playing();
+  uint32_t v = radio::sermonsVersion();
+  bool ld = radio::sermonsLoading();
+  uint16_t got = radio::sermonsLoaded();
+  int16_t pl = radio::sermonsPlaying();
   if(v != _ver || ld != _load || got != _got || pl != _play){
     bool fresh = v != _ver;
     _ver = v; _load = ld; _got = got; _play = pl;
-    if(fresh && _jump && pl >= 0 && sermons.count()){
-      /*  одразу до тієї, що грає  */
+    if(fresh && _jump && pl >= 0 && radio::sermonsCount()){
       int16_t s = 6 + pl * RH - CH / 2 + RH / 2;
       int16_t mx = height() - CH; if(s > mx) s = mx; if(s < 0) s = 0;
       scroll = s; _jump = false;
@@ -740,8 +654,8 @@ void SermPage::tick(uint32_t now){
 
 int16_t SermPage::hit(int16_t x, int16_t y, Rect& r, uint8_t& radius){
   (void)x;
-  uint16_t n = sermons.count();
-  if(!n){ if(!sermons.loading() && y >= 40 && y < 150){ r = Rect(MX, 40, CWID, 110); radius = R_CARD; return 9999; } return -1; }
+  uint16_t n = radio::sermonsCount();
+  if(!n){ if(!radio::sermonsLoading() && y >= 40 && y < 150){ r = Rect(MX, 40, CWID, 110); radius = R_CARD; return 9999; } return -1; }
   int16_t i = (y - 6) / RH;
   if(y < 6 || i < 0 || i >= (int16_t)n) return -1;
   r = Rect(MX, 6 + i * RH, CWID, RH); radius = (i == 0 || i == (int16_t)n - 1) ? R_CARD : 0;
@@ -750,36 +664,28 @@ int16_t SermPage::hit(int16_t x, int16_t y, Rect& r, uint8_t& radius){
 
 void SermPage::tap(int16_t id, int16_t x, int16_t y){
   (void)x; (void)y;
-  if(id == 9999){ sermons.fetch(); return; }
-  if(id >= 0 && sermons.count() && sermons.play(id)) M.close();
+  if(id == 9999){ radio::sermonsFetch(); return; }
+  if(id >= 0 && radio::sermonsCount() && radio::sermonsPlay(id)) M.close();
 }
 
 static SermPage s_serm;
 Page& pgSermons = s_serm;
 
 /*  =================== «Про радіо» =================== */
-static const char* vBuild(){ static char b[40]; snprintf(b, sizeof(b), "%s, %s", prVersion(), prBuild()); return b; }
+static const char* vBuild(){ static char b[40]; snprintf(b, sizeof(b), "%s, %s", radio::version(), radio::build()); return b; }
 static const char* vNet(){ return WB::staUp() ? WB::curSsid() : "немає"; }
 static const char* vIp(){ return WB::staUp() ? WB::ip() : "-"; }
 static const char* vRssi(){ static char b[16]; if(WB::staUp()) snprintf(b, sizeof(b), "%d dBm", (int)WB::rssi()); else snprintf(b, sizeof(b), "-"); return b; }
-static const char* vStream(){ static char b[40]; if(player.status() == PLAYING && config.station.bitrate) snprintf(b, sizeof(b), tr("%d кбіт/с, %s"), config.station.bitrate, player.getCodecname()); else snprintf(b, sizeof(b), "-"); return b; }
-static const char* vWeather(){ static char b[40]; if(timekeeper.weatherHave) snprintf(b, sizeof(b), tr("%.1f°  %d мм  %d%%"), (float)timekeeper.weatherTemp, (int)timekeeper.weatherPress, (int)timekeeper.weatherHum); else snprintf(b, sizeof(b), "-"); return b; }
-static const char* vBat2(){
-  static char b[48];
-  uint16_t mv = extras.batMv();
-  if(extras.s.noBat) snprintf(b, sizeof(b), "не показується");
-  else if(mv < 2800) snprintf(b, sizeof(b), "-");
-  else snprintf(b, sizeof(b), tr("%d%%, %u.%02u В%s"), extras.batPct(), mv / 1000, (mv % 1000) / 10, extras.charged() ? tr(", заряджено") : (extras.charging() ? tr(", заряджається") : ""));
-  return b;
-}
-static const char* vHeap(){ static char b[24]; snprintf(b, sizeof(b), tr("%u КБ"), (unsigned)(ESP.getFreeHeap() / 1024)); return b; }
+static const char* vStream(){ static char b[40]; if(radio::playing() && radio::bitrate()) snprintf(b, sizeof(b), tr("%d кбіт/с, %s"), radio::bitrate(), radio::codec()); else snprintf(b, sizeof(b), "-"); return b; }
+static const char* vWeather(){ static char b[40]; if(radio::weatherHave()) snprintf(b, sizeof(b), tr("%.1f°  %d мм  %d%%"), (float)radio::weatherTemp(), (int)radio::weatherPress(), (int)radio::weatherHum()); else snprintf(b, sizeof(b), "-"); return b; }
+static const char* vHeap(){ static char b[24]; snprintf(b, sizeof(b), tr("%u КБ"), (unsigned)(radio::freeHeap() / 1024)); return b; }
 static Item s_infoItems[] = {
   iSection("ПОТУЖНЕ РАДІО"),
   iInfo("Версія", vBuild),
   iSection("МЕРЕЖА"),
   iInfo("Мережа", vNet), iInfo("Адреса", vIp), iInfo("Сигнал", vRssi),
   iSection("ЗАРАЗ"),
-  iInfo("Потік", vStream), iInfo("Погода", vWeather), iInfo("Батарея", vBat2), iInfo("Вільна пам'ять", vHeap),
+  iInfo("Потік", vStream), iInfo("Погода", vWeather), iInfo("Вільна пам'ять", vHeap),
 };
 static ListPage s_info("Про радіо", s_infoItems, sizeof(s_infoItems) / sizeof(s_infoItems[0]));
 Page& pgInfo = s_info;
@@ -806,7 +712,7 @@ class PowerPage : public Page {
 
 void PowerPage::draw(Gfx& g){
   static const char* T1[2] = { "Перезавантажити", "Вимкнути" };
-  static const char* T2[2] = { "звук стихне на 10 секунд", "увімкнеться дотиком до екрана" };
+  static const char* T2[2] = { "звук стихне на 10 секунд", "увімкнеться дотиком до екрана" };   /* «вимкнути» — тиша й темний екран до дотику */
   for(uint8_t i = 0; i < 2; i++){
     Rect r = btn(i);
     if(!g.visible(r.x, r.y, r.w, r.h)) continue;
@@ -837,7 +743,6 @@ void PowerPage::tick(uint32_t now){
   /*  напис «вимикаюсь» уже на екрані — виконуємо (тут, у задачі дисплея: екран спить лише звідси)  */
   if(_go >= 0 && !_done && ++_frames > 3){
     _done = true;
-    if(_go == 1){ delay(900); extras.pwmSet(0); display.deepsleep(); }
     extras.requestPower(_go == 0 ? 1 : 2);
   }
 }

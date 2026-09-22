@@ -8,7 +8,8 @@
   I<номер>.<колір>.<тло>             значок m2icons (номер — з enum Icon), масштаб 4/3, поле 32×32
   S<рівень>.<увімк>.<вимк>.<тло>     рівень сигналу — чотири риски
 Тло — колір RGB565, або «P<картинка>_<x>_<y>»: точний шматок картинки-тла з лівого верхнього кута
-(x, y) — для нерухомих елементів на градієнті чи «світінні» (шапка меню, плеєр).
+(x, y) — для нерухомих елементів на градієнті чи «світінні» (шапка меню, плеєр), або «K…» — колір
+з однією фігурою (плашка під значком, рамка довкола квадрата) — див. synth_bg.
 Прошивка шукає картинку за хешем FNV-1a ключа (m2gfx.cpp), тож ключ має збігатися до символу.
 """
 import math, os, re
@@ -66,6 +67,12 @@ def shape(cv, name, c, bg):
         L(-6, -6, -6, 6, 2); P([(6, -6), (6, 6), (-4, 0)])
     elif name == 'next':
         L(6, -6, 6, 6, 2); P([(-6, -6), (-6, 6), (4, 0)])
+    elif name == 'tick':                   # «Готово» на сторінці підключення — вирізом
+        L(-13, 1, -4, 10, 5); L(-4, 10, 14, -9, 5)
+    elif name == 'cross':
+        L(-11, -11, 11, 11, 5); L(-11, 11, 11, -11, 5)
+    elif name == 'strike':                 # перекреслене око (пароль сховано)
+        L(-9, 9, 9, -9, 1.8)
     elif name[0] == 'w':                   # погода: m2player _drawClock, S = 0.8
         ic = int(name[1:]); S = 0.8
         if ic == 0: _sunny(cv, 0, -1, S, ACC, k)
@@ -113,18 +120,35 @@ def render_ofs(key, pics=None):
     return im, -(im.width // 2), -(im.height // 2)
 
 
+def synth_bg(spec, w, h):
+    """«K<тло>_R_<x>_<y>_<w>_<h>_<r>_<колір>» чи «K<тло>_O_<cx·4>_<cy·4>_<r·4>_<колір>»: тло поля з фігурою."""
+    p = spec[1:].split('_')
+    cv = gfx.Canvas(w, h, c565(p[0]))
+    if p[1] == 'R':
+        x, y, ww, hh, r = (int(v) for v in p[2:7])
+        if r > 0: cv.box(x, y, ww, hh, r, c565(p[7]))
+        else: cv.fill(x, y, ww, hh, c565(p[7]))
+    elif p[1] == 'O':
+        cx, cy, r = (int(v) / 4 for v in p[2:5])
+        cv.circle(cx, cy, r, c565(p[5]))
+    return cv.image()
+
+
 def render(key, pics=None):
     """→ (Image RGB) для ключа. pics — {номер: Image} картинок-тла для ключів «…P<n>_<x>_<y>»."""
     t, rest = key[0], key[1:]
     f = rest.split('.')
-    if f[-1].startswith('P'):
-        # На картинці: малюємо двічі — на чорному й на білому, звідти прозорість кожного пікселя,
-        # і кладемо на точний шматок тла.
-        n, x, y = (int(v) for v in f[-1][1:].split('_'))
+    if f[-1][0] in 'PK':
+        # На картинці чи на складеному тлі: малюємо двічі — на чорному й на білому, звідти
+        # прозорість кожного пікселя, і кладемо на точний шматок тла.
         k0 = t + '.'.join(f[:-1] + ['0000']); k1 = t + '.'.join(f[:-1] + ['FFFF'])
         a, b = _render(k0), _render(k1)
         w, h = a.size
-        bg = pics[n].crop((x, y, x + w, y + h)).convert('RGB')
+        if f[-1][0] == 'P':
+            n, x, y = (int(v) for v in f[-1][1:].split('_'))
+            bg = pics[n].crop((x, y, x + w, y + h)).convert('RGB')
+        else:
+            bg = synth_bg(f[-1], w, h)
         pa, pb, pg = a.load(), b.load(), bg.load()
         out = Image.new('RGB', (w, h)); po = out.load()
         for yy in range(h):

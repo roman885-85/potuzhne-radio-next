@@ -55,13 +55,23 @@ PAL = [0x3A8D, 0x5A4B, 0x2C6A, 0x6A28, 0x2B0F, 0x7A6C, 0x4B09, 0x31CC]
 
 
 def font_tables(meta):
-    """Ширини літер (пікселі Nextion) у порядку спільної таблиці символів fonts.CHARS."""
-    out = {}
+    """Ширини літер (пікселі Nextion) у порядку спільної таблиці символів fonts.CHARS і де в клітинці
+    починається й кінчається малюнок літери (перший і останній рядки з фарбою) — щоб поле тексту
+    на екрані було не вище за самі літери."""
+    out, ink = {}, {}
     for role, m in meta.items():
         h, name, gl, ms = zifont.read(os.path.join(fonts.OUT, m['file']))
-        w = {g['code']: g['w'] for g in gl}
-        out[role] = [w.get(ord(ch), 0) for ch in fonts.CHARS]
-    return out
+        by = {g['code']: g for g in gl}
+        out[role] = [by[ord(ch)]['w'] if ord(ch) in by else 0 for ch in fonts.CHARS]
+        rows = []
+        for ch in fonts.CHARS:
+            g = by.get(ord(ch))
+            if not g: rows.append((255, 0)); continue
+            lv = zifont.decode_glyph(g['data'], g['bw'], h['h'])
+            used = [y for y in range(h['h']) if any(lv[y * g['bw']:(y + 1) * g['bw']])]
+            rows.append((used[0], used[-1]) if used else (255, 0))
+        ink[role] = rows
+    return out, ink
 
 
 def load_keys():
@@ -88,7 +98,7 @@ def build():
     for i, a in enumerate(atl): pic('ATLAS%d' % i, a)
 
     # ---- nxassets.h / .cpp
-    adv = font_tables(meta)
+    adv, ink = font_tables(meta)
     order = sorted(meta.items(), key=lambda kv: kv[1]['id'])
     h = ['/*  Створює tools/nextion/nxassets.py — вручну не правити.  */',
          '#ifndef nxassets_h', '#define nxassets_h', '#include <stdint.h>', '#include "m2gfx.h"', '',
@@ -120,7 +130,8 @@ def build():
     c.append('const uint16_t NX_CP_N = %d;' % len(fonts.CHARS))
     for role, m in order:
         c.append('static const uint8_t ADV_%s[%d] = { %s };' % (role, len(fonts.CHARS), ', '.join(str(v) for v in adv[role])))
-        c.append('const NxFont NXF_%s = { %d, %d, %d, ADV_%s };   // %s, H=%d' % (role, m['id'], m['h'], m['asc'], role, m['file'], m['cap']))
+        c.append('static const uint8_t INK_%s[%d] = { %s };' % (role, 2 * len(fonts.CHARS), ', '.join('%d, %d' % r for r in ink[role])))
+        c.append('const NxFont NXF_%s = { %d, %d, %d, ADV_%s, INK_%s };   // %s, H=%d' % (role, m['id'], m['h'], m['asc'], role, role, m['file'], m['cap']))
     c += ['', '}  // namespace m2', '']
     open(os.path.join(SRC, 'nxassets.cpp'), 'w', encoding='utf-8').write('\n'.join(c))
     print('картинок %d (атласів %d), спрайтів %d, шрифтів %d' % (len(pics), len(atl), len(rows), len(meta)))

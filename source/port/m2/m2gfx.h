@@ -44,6 +44,7 @@ enum : uint8_t { AL_L = 0, AL_C = 1, AL_R = 2 };
 struct NxFont {
   uint8_t id, h, asc;
   const uint8_t* adv;
+  const uint8_t* ink;              /* пари «перший, останній рядок із фарбою» (255 — порожня літера) */
 };
 typedef NxFont GFXfont;            /* щоб код ПОТУЖНОГО з «const GFXfont*» лишився як є */
 
@@ -70,16 +71,25 @@ class Gfx {
     void clip(int16_t x, int16_t y, int16_t w, int16_t h);
     void clipLocal(int16_t x, int16_t y, int16_t w, int16_t h){ clip(x + _ox, y + _oy, w, h); }
     void unclip(){ _cx0 = _px0; _cy0 = _py0; _cx1 = _px1; _cy1 = _py1; }
+    /*  Обрізання двох видів: ділянка проходу (що перемальовуємо зараз) і «логічне» — межі,
+        які задає сама сторінка (narrow: вміст під шапкою, барабан у картці). Фігури ріжуться
+        по обох; текст обрізати посередині Nextion не вміє, тож рядок, що виходить за логічні
+        межі по висоті, не малюється зовсім (а межі проходу текст може перекрити — він той самий).  */
     Rect narrow(int16_t x, int16_t y, int16_t w, int16_t h){
       Rect prev = clipRect();
       int16_t x0 = x + _ox, y0 = y + _oy, x1 = x0 + w, y1 = y0 + h;
+      if(_nl < 8){ _lst[_nl][0] = _ly0; _lst[_nl][1] = _ly1; _nl++; }
+      if(y0 > _ly0) _ly0 = y0; if(y1 < _ly1) _ly1 = y1;
       if(x0 < _cx0) x0 = _cx0; if(y0 < _cy0) y0 = _cy0;
       if(x1 > _cx1) x1 = _cx1; if(y1 > _cy1) y1 = _cy1;
       if(x1 < x0) x1 = x0; if(y1 < y0) y1 = y0;
       _cx0 = x0; _cy0 = y0; _cx1 = x1; _cy1 = y1;
       return prev;
     }
-    void restore(const Rect& r){ _cx0 = r.x; _cy0 = r.y; _cx1 = r.x + r.w; _cy1 = r.y + r.h; }
+    void restore(const Rect& r){
+      _cx0 = r.x; _cy0 = r.y; _cx1 = r.x + r.w; _cy1 = r.y + r.h;
+      if(_nl){ _nl--; _ly0 = _lst[_nl][0]; _ly1 = _lst[_nl][1]; }
+    }
     Rect clipRect() const { return Rect(_cx0, _cy0, _cx1 - _cx0, _cy1 - _cy0); }
     bool visible(int16_t x, int16_t y, int16_t w, int16_t h) const {
       int16_t sx = x + _ox, sy = y + _oy;
@@ -137,6 +147,8 @@ class Gfx {
     int16_t _cx0 = 0, _cy0 = 0, _cx1 = 0, _cy1 = 0;     /* обрізання */
     int16_t _ox = 0, _oy = 0;
     bool _exact = false;
+    int16_t _ly0 = -2000, _ly1 = 2000;             /* логічне обрізання по висоті (екран 320×240) */
+    int16_t _lst[8][2]; uint8_t _nl = 0;
     void _box(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t r, uint16_t c);
     bool _sprite(const char* key, int16_t dx, int16_t dy, int16_t qx, int16_t qy, int16_t qw, int16_t qh);
 };
