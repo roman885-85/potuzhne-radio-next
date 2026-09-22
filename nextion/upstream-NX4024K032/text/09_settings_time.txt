@@ -1,0 +1,224 @@
+Page settings_time
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Postinitialize Event
+            prints "^page=time$",0
+            settings_page=6
+        
+Variable (int32) tzHour
+    Attributes
+        ID   : 15
+        Scope: local
+        Value: 0
+    
+Variable (int32) tzMin
+    Attributes
+        ID   : 16
+        Scope: local
+        Value: 0
+    
+Text title
+    Attributes
+        ID                 : 1
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               :   TIMEZONE
+        Max. Text Size     : 255
+    
+Text tzHourText
+    Attributes
+        ID                 : 9
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Text tzMinText
+    Attributes
+        ID                 : 10
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Text localTime
+    Attributes
+        ID                 : 17
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Picture icon
+    Attributes
+        ID               : 3
+        Scope            : local
+        Send Component ID: disabled
+    
+Button btnBack
+    Attributes
+        ID               : 2
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^page=player$",0
+        
+Button b0
+    Attributes
+        ID               : 4
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_info
+        
+Button b1
+    Attributes
+        ID               : 5
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_eq
+        
+Button b2
+    Attributes
+        ID               : 6
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_wifi
+        
+Button b3
+    Attributes
+        ID               : 7
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+Button b4
+    Attributes
+        ID               : 8
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_sys
+        
+Button b5
+    Attributes
+        ID               : 11
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 0
+    
+    Events
+        Touch Release Event
+            tzHour.val+=1
+            if(tzHour.val>14)
+            {
+                tzHour.val=14
+            }
+            covx tzHour.val,tzHourText.txt,2,0
+            prints "^tzhour=",0
+            prints tzHourText.txt,0
+            prints "$",0
+        
+Button b6
+    Attributes
+        ID               : 12
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 0
+    
+    Events
+        Touch Release Event
+            tzMin.val+=15
+            if(tzMin.val==60)
+            {
+                tzMin.val=0
+            }
+            covx tzMin.val,tzMinText.txt,2,0
+            prints "^tzmin=",0
+            prints tzMinText.txt,0
+            prints "$",0
+        
+Button b7
+    Attributes
+        ID               : 13
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 0
+    
+    Events
+        Touch Release Event
+            tzHour.val-=1
+            if(tzHour.val<-12)
+            {
+                tzHour.val=-12
+            }
+            covx tzHour.val,tzHourText.txt,2,0
+            prints "^tzhour=",0
+            prints tzHourText.txt,0
+            prints "$",0
+        
+Button b8
+    Attributes
+        ID               : 14
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 0
+    
+    Events
+        Touch Release Event
+            tzMin.val-=15
+            if(tzMin.val<0)
+            {
+                tzMin.val=45
+            }
+            covx tzMin.val,tzMinText.txt,2,0
+            prints "^tzmin=",0
+            prints tzMinText.txt,0
+            prints "$",0
+        

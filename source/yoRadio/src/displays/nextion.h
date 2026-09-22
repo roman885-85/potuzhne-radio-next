@@ -34,6 +34,7 @@ class Nextion {
   public:
     displayMode_e mode;
     bool dt;
+    volatile bool paused = false;   /* ПОТУЖНЕ: службова робота з екраном (extras/nxLink) */
   public:
     Nextion();
     void  begin(bool dummy=false);

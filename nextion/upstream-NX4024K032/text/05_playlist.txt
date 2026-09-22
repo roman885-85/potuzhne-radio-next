@@ -1,0 +1,167 @@
+Page playlist
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+Text t0
+    Attributes
+        ID                 : 1
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Text t1
+    Attributes
+        ID                 : 2
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Text t2
+    Attributes
+        ID                 : 3
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Text t3
+    Attributes
+        ID                 : 4
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Text t4
+    Attributes
+        ID                 : 5
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Text t5
+    Attributes
+        ID                 : 6
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Text t6
+    Attributes
+        ID                 : 7
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 50
+    
+Button b0
+    Attributes
+        ID               : 8
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^ctrls=up$",0
+        
+Button b1
+    Attributes
+        ID               : 9
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^ctrls=dn$",0
+        
+Button b2
+    Attributes
+        ID               : 10
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^page=player$",0
+        
+Button b3
+    Attributes
+        ID               : 13
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^ctrls=go$",0
+        
+Hotspot m0
+    Attributes
+        ID               : 11
+        Scope            : local
+        Send Component ID: disabled
+    
+    Events
+        Touch Press Event
+            plTouchY=tch1
+            plTouchMoved=0
+            swipeTimer.en=1
+        
+        Touch Release Event
+            swipeTimer.en=0
+            if(plTouchMoved==0&&plTouchY>104&&plTouchY<134)
+            {
+                prints "^ctrls=go$",0
+            }
+        
+Timer swipeTimer
+    Attributes
+        ID         : 12
+        Scope      : local
+        Period (ms): 100
+        Enabled    : no
+    
+    Events
+        Timer Event
+            plTouchDelta=tch1-plTouchY
+            if(plTouchDelta>10||plTouchDelta<-10)
+            {
+                //  covx tch1,tY.txt,0,0
+                prints "^ctrls=",8
+                if(plTouchDelta>10)
+                {
+                    prints "up",2
+                }else
+                {
+                    prints "dn",2
+                }
+                prints "$",1
+                plTouchY=tch1
+                plTouchMoved=1
+            }
+        

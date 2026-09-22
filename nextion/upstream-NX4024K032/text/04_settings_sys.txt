@@ -1,0 +1,232 @@
+Page settings_sys
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Preinitialize Event
+            brSlider.val=dim
+            covx dim,brTxt.txt,0,0
+        
+        Postinitialize Event
+            prints "^page=sys$",0
+            settings_page=7
+        
+Text title
+    Attributes
+        ID                 : 1
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               :   SYSTEM
+        Max. Text Size     : 255
+    
+Text t0
+    Attributes
+        ID                 : 5
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : smartstart
+        Max. Text Size     : 50
+    
+    Events
+        Touch Release Event
+            if(smartstart.val==0)
+            {
+                smartstart.val=1
+                prints "^smartstart=1$",0
+            }else
+            {
+                smartstart.val=0
+                prints "^smartstart=0$",0
+            }
+        
+Text t1
+    Attributes
+        ID                 : 13
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : audioinfo
+        Max. Text Size     : 50
+    
+    Events
+        Touch Release Event
+            if(audioinfo.val==0)
+            {
+                audioinfo.val=1
+                prints "^audioinfo=1$",0
+            }else
+            {
+                audioinfo.val=0
+                prints "^audioinfo=0$",0
+            }
+        
+Text t2
+    Attributes
+        ID                 : 14
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : brightness
+        Max. Text Size     : 50
+    
+    Events
+        Touch Release Event
+            if(audioinfo.val==0)
+            {
+                audioinfo.val=1
+                prints "^audioinfo=1$",20
+            }else
+            {
+                audioinfo.val=0
+                prints "^audioinfo=0$",20
+            }
+        
+Text brTxt
+    Attributes
+        ID                 : 15
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 0
+        Max. Text Size     : 50
+    
+    Events
+        Touch Release Event
+            if(audioinfo.val==0)
+            {
+                audioinfo.val=1
+                prints "^audioinfo=1$",20
+            }else
+            {
+                audioinfo.val=0
+                prints "^audioinfo=0$",20
+            }
+        
+Picture icon
+    Attributes
+        ID               : 3
+        Scope            : local
+        Send Component ID: disabled
+    
+Slider brSlider
+    Attributes
+        ID               : 11
+        Scope            : local
+        Send Component ID: disabled
+        Position         : 0
+        Upper range limit: 100
+        Lower range limit: 0
+    
+Button btnBack
+    Attributes
+        ID               : 2
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^page=player$",0
+        
+Button b0
+    Attributes
+        ID               : 6
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_info
+        
+Button b1
+    Attributes
+        ID               : 7
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_eq
+        
+Button b2
+    Attributes
+        ID               : 8
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_wifi
+        
+Button b3
+    Attributes
+        ID               : 9
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_time
+        
+Button b4
+    Attributes
+        ID               : 10
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+Checkbox smartstart
+    Attributes
+        ID               : 4
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+    
+    Events
+        Touch Release Event
+            if(smartstart.val==1)
+            {
+                prints "^smartstart=1$",0
+            }else
+            {
+                prints "^smartstart=0$",0
+            }
+        
+Checkbox audioinfo
+    Attributes
+        ID               : 12
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+    
+    Events
+        Touch Release Event
+            if(audioinfo.val==1)
+            {
+                prints "^audioinfo=1$",0
+            }else
+            {
+                prints "^audioinfo=0$",0
+            }
+        

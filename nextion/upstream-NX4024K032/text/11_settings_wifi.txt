@@ -1,0 +1,327 @@
+Page settings_wifi
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Postinitialize Event
+            prints "^page=wifi$",0
+            settings_page=5
+        
+Text title
+    Attributes
+        ID                 : 1
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               :   WI-FI
+        Max. Text Size     : 255
+    
+Text t0
+    Attributes
+        ID                 : 9
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t1
+    Attributes
+        ID                 : 10
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t2
+    Attributes
+        ID                 : 11
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t3
+    Attributes
+        ID                 : 12
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t4
+    Attributes
+        ID                 : 13
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t5
+    Attributes
+        ID                 : 14
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t6
+    Attributes
+        ID                 : 15
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t7
+    Attributes
+        ID                 : 16
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t8
+    Attributes
+        ID                 : 17
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t9
+    Attributes
+        ID                 : 18
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: 1
+        Text               : 
+        Max. Text Size     : 150
+    
+Text t10
+    Attributes
+        ID                 : 19
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : SSID
+        Max. Text Size     : 10
+    
+Text t11
+    Attributes
+        ID                 : 20
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : PASS
+        Max. Text Size     : 10
+    
+Text t12
+    Attributes
+        ID                 : 21
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 1
+        Max. Text Size     : 10
+    
+Text t13
+    Attributes
+        ID                 : 22
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 2
+        Max. Text Size     : 10
+    
+Text t14
+    Attributes
+        ID                 : 23
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 3
+        Max. Text Size     : 10
+    
+Text t15
+    Attributes
+        ID                 : 24
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 4
+        Max. Text Size     : 10
+    
+Text t16
+    Attributes
+        ID                 : 25
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 5
+        Max. Text Size     : 10
+    
+Picture icon
+    Attributes
+        ID               : 3
+        Scope            : local
+        Send Component ID: disabled
+    
+Button btnBack
+    Attributes
+        ID               : 2
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            if(apscreenlock==0)
+            {
+                prints "^page=player$",0
+            }
+        
+Button b0
+    Attributes
+        ID               : 4
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            if(apscreenlock==0)
+            {
+                page settings_info
+            }
+        
+Button b1
+    Attributes
+        ID               : 5
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            if(apscreenlock==0)
+            {
+                page settings_eq
+            }
+        
+Button b2
+    Attributes
+        ID               : 6
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+Button b3
+    Attributes
+        ID               : 7
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            if(apscreenlock==0)
+            {
+                page settings_time
+            }
+        
+Button b4
+    Attributes
+        ID               : 8
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            if(apscreenlock==0)
+            {
+                page settings_sys
+            }
+        
+Button b5
+    Attributes
+        ID               : 26
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : SAVE
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            if(t0.txt!=""&&t1.txt!="")
+            {
+                prints "^addssid=",0
+                prints t0.txt,0
+                prints "$",0
+                prints "^addpass=",0
+                prints t1.txt,0
+                prints "$",0
+            }
+            if(t2.txt!=""&&t3.txt!="")
+            {
+                prints "^addssid=",0
+                prints t2.txt,0
+                prints "$",0
+                prints "^addpass=",0
+                prints t3.txt,0
+                prints "$",0
+            }
+            if(t4.txt!=""&&t5.txt!="")
+            {
+                prints "^addssid=",0
+                prints t4.txt,0
+                prints "$",0
+                prints "^addpass=",0
+                prints t5.txt,0
+                prints "$",0
+            }
+            if(t6.txt!=""&&t7.txt!="")
+            {
+                prints "^addssid=",0
+                prints t6.txt,0
+                prints "$",0
+                prints "^addpass=",0
+                prints t7.txt,0
+                prints "$",0
+            }
+            if(t8.txt!=""&&t9.txt!="")
+            {
+                prints "^addssid=",0
+                prints t8.txt,0
+                prints "$",0
+                prints "^addpass=",0
+                prints t9.txt,0
+                prints "$",0
+            }
+            prints "^wifidone=1$",0
+        

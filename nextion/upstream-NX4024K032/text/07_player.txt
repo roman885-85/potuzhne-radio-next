@@ -1,0 +1,219 @@
+Page player
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Preinitialize Event
+            vis press_img,weatherVisible
+            vis press_txt,weatherVisible
+            vis hum_img,weatherVisible
+            vis hum_txt,weatherVisible
+            vis temp_img,weatherVisible
+            vis temp_txt,weatherVisible
+            vis cond_img,weatherVisible
+        
+        Touch Release Event
+            prints "toggle",10
+        
+Text clock
+    Attributes
+        ID                 : 1
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 00:00
+        Max. Text Size     : 10
+    
+Text title2
+    Attributes
+        ID                 : 2
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 60
+    
+Text meta
+    Attributes
+        ID                 : 3
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 35
+    
+    Events
+        Touch Release Event
+            prints "^page=playlist$",0
+        
+Text secText
+    Attributes
+        ID                 : 4
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 00
+        Max. Text Size     : 10
+    
+Text title1
+    Attributes
+        ID                 : 5
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 60
+    
+Text volText
+    Attributes
+        ID                 : 9
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 0
+        Max. Text Size     : 3
+    
+Text dateText
+    Attributes
+        ID                 : 10
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 100
+    
+Text bitrate
+    Attributes
+        ID                 : 13
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : und
+        Max. Text Size     : 10
+    
+Text temp_txt
+    Attributes
+        ID                 : 14
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 0.0
+        Max. Text Size     : 7
+    
+Text press_txt
+    Attributes
+        ID                 : 18
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 756mm
+        Max. Text Size     : 6
+    
+Text hum_txt
+    Attributes
+        ID                 : 20
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 0%
+        Max. Text Size     : 4
+    
+Picture temp_img
+    Attributes
+        ID               : 15
+        Scope            : local
+        Send Component ID: disabled
+    
+Picture cond_img
+    Attributes
+        ID               : 16
+        Scope            : global
+        Send Component ID: disabled
+    
+Picture press_img
+    Attributes
+        ID               : 17
+        Scope            : local
+        Send Component ID: disabled
+    
+Picture hum_img
+    Attributes
+        ID               : 19
+        Scope            : local
+        Send Component ID: disabled
+    
+Picture p0
+    Attributes
+        ID               : 21
+        Scope            : local
+        Send Component ID: disabled
+    
+Progress Bar vul
+    Attributes
+        ID               : 6
+        Scope            : global
+        Send Component ID: disabled
+        Value            : 0
+    
+Progress Bar vur
+    Attributes
+        ID               : 7
+        Scope            : global
+        Send Component ID: disabled
+        Value            : 0
+    
+Slider volumeSlider
+    Attributes
+        ID               : 8
+        Scope            : global
+        Send Component ID: disabled
+        Position         : 50
+        Upper range limit: 254
+        Lower range limit: 0
+    
+    Events
+        Touch Release Event
+            covx volumeSlider.val,volText.txt,0,0
+            prints "^vol=",0
+            prints volText.txt,0
+            prints "$",0
+        
+Button btnSettings
+    Attributes
+        ID               : 11
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_page
+        
+Button btnPlaylist
+    Attributes
+        ID               : 12
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^page=playlist$",0
+        
+Hotspot playTouch
+    Attributes
+        ID               : 22
+        Scope            : local
+        Send Component ID: disabled
+    
+    Events
+        Touch Release Event
+            prints "^ctrls=toggle$",0
+        

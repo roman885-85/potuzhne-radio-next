@@ -23,11 +23,14 @@ export PATH="/usr/local/bin:$PATH"
 
 command -v prlctl >/dev/null || { echo "prlctl не знайдено — Parallels не встановлено?"; exit 1; }
 
-if [ "$(prlctl status "$VM" 2>/dev/null | awk '{print $NF}')" != "running" ]; then
-    echo "Віртуальна машина «$VM» не запущена — вмикаю…"
+# ВМ сама стає на паузу без активності («paused»), буває й «suspended» — будимо, доки не запрацює.
+for i in 1 2 3 4 5 6; do
+    st="$(prlctl status "$VM" 2>/dev/null | awk '{print $NF}')"
+    [ "$st" = "running" ] && break
+    echo "Віртуальна машина «$VM»: $st — вмикаю…" >&2
     prlctl resume "$VM" >/dev/null 2>&1 || prlctl start "$VM" >/dev/null 2>&1 || true
-    sleep 5
-fi
+    sleep 4
+done
 
 TMP="_run-$$.ps1"
 {
@@ -40,8 +43,16 @@ TMP="_run-$$.ps1"
 GUEST="\\\\Mac\\Home\\Documents\\radio_potughne_next\\tools\\vm\\$TMP"
 
 set +e
-prlctl exec "$VM" --current-user powershell -NoProfile -ExecutionPolicy Bypass -File "$GUEST"
-CODE=$?
+for attempt in 1 2 3; do
+    OUT="$(prlctl exec "$VM" --current-user powershell -NoProfile -ExecutionPolicy Bypass -File "$GUEST" 2>&1)"
+    CODE=$?
+    # ВМ могла стати на паузу між перевіркою й запуском — будимо й повторюємо
+    if printf '%s' "$OUT" | grep -q 'is in the "paused" state\|is in the "suspended" state'; then
+        prlctl resume "$VM" >/dev/null 2>&1; sleep 4; continue
+    fi
+    break
+done
+printf '%s\n' "$OUT"
 set -e
 
 rm -f "$TMP"

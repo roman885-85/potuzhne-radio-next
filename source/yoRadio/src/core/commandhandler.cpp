@@ -7,6 +7,7 @@
 #include "config.h"
 #include "controls.h"
 #include "telnet.h"
+#include "../extras/nxLink.h"
 
 #if DSP_MODEL==DSP_DUMMY
 #define DUMMYDISPLAY
@@ -15,6 +16,7 @@
 CommandHandler cmd;
 
 bool CommandHandler::exec(const char *command, const char *value, uint8_t cid) {
+  if (strEquals(command, "nxupload")) { NxLink::startUpload(value, 921600, 255); return true; }
   if (strEquals(command, "start"))    { player.sendCommand({PR_PLAY, config.lastStation()}); return true; }
   if (strEquals(command, "stop"))     { player.sendCommand({PR_STOP, 0}); return true; }
   if (strEquals(command, "toggle"))   { player.toggle(); return true; }

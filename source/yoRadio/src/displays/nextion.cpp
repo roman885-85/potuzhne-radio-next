@@ -26,7 +26,7 @@ Nextion::Nextion() {
 void nextionCore0( void * pvParameters ){
   delay(500);
   while(true){
-    nextion.loop();
+    if(!nextion.paused) nextion.loop();
     vTaskDelay(5);
   }
   vTaskDelete( NULL );
@@ -82,7 +82,7 @@ void Nextion::apScreen() {
 }
 
 void Nextion::putRequest(requestParams_t request){
-  if(_displayQueue==NULL) return;
+  if(_displayQueue==NULL || paused) return;
   xQueueSend(_displayQueue, &request, portMAX_DELAY);
 }
 

@@ -1,0 +1,47 @@
+Page boot
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Preinitialize Event
+            bauds=115200
+        
+Text bootstring
+    Attributes
+        ID                 : 2
+        Scope              : global
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 255
+    
+Picture logo
+    Attributes
+        ID               : 1
+        Scope            : local
+        Send Component ID: disabled
+    
+Picture bootprogress
+    Attributes
+        ID               : 3
+        Scope            : local
+        Send Component ID: disabled
+    
+Timer boottimer
+    Attributes
+        ID         : 4
+        Scope      : local
+        Period (ms): 50
+        Enabled    : yes
+    
+    Events
+        Timer Event
+            bootprogress.pic++
+            if(bootprogress.pic==25)
+            {
+                bootprogress.pic=0
+            }
+        

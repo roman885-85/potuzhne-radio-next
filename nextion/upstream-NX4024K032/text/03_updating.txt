@@ -1,0 +1,53 @@
+Page updating
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Postinitialize Event
+            prints "^page=upd$",0
+        
+Text title
+    Attributes
+        ID                 : 1
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : UPDATING
+        Max. Text Size     : 255
+    
+Picture icon
+    Attributes
+        ID               : 2
+        Scope            : local
+        Send Component ID: disabled
+    
+Picture p0
+    Attributes
+        ID               : 3
+        Scope            : local
+        Send Component ID: disabled
+    
+Picture updateprogress
+    Attributes
+        ID               : 4
+        Scope            : local
+        Send Component ID: disabled
+    
+Timer updatetimer
+    Attributes
+        ID         : 5
+        Scope      : local
+        Period (ms): 50
+        Enabled    : yes
+    
+    Events
+        Timer Event
+            updateprogress.pic++
+            if(updateprogress.pic==25)
+            {
+                updateprogress.pic=0
+            }
+        

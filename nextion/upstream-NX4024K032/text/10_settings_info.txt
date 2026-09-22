@@ -1,0 +1,227 @@
+Page settings_info
+    Attributes
+        ID               : 0
+        Scope            : local
+        Send Component ID: disabled
+        Locked           : no
+    
+    Events
+        Postinitialize Event
+            prints "^page=info$",0
+            settings_page=3
+        
+Text title
+    Attributes
+        ID                 : 1
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               :   INFO
+        Max. Text Size     : 255
+    
+Text t0
+    Attributes
+        ID                 : 9
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : сRadio:
+        Max. Text Size     : 10
+    
+Text t1
+    Attributes
+        ID                 : 10
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : esp32:
+        Max. Text Size     : 10
+    
+Text t2
+    Attributes
+        ID                 : 11
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : rssi:
+        Max. Text Size     : 10
+    
+Text t3
+    Attributes
+        ID                 : 12
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : ip:
+        Max. Text Size     : 10
+    
+Text yoversion
+    Attributes
+        ID                 : 13
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Text espcore
+    Attributes
+        ID                 : 14
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Text ipaddr
+    Attributes
+        ID                 : 15
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 30
+    
+Text rssi
+    Attributes
+        ID                 : 16
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Text t4
+    Attributes
+        ID                 : 17
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : NX4024K032
+        Max. Text Size     : 10
+    
+Text t5
+    Attributes
+        ID                 : 18
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : display:
+        Max. Text Size     : 10
+    
+Text t6
+    Attributes
+        ID                 : 19
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : v1.0
+        Max. Text Size     : 10
+    
+Text t7
+    Attributes
+        ID                 : 20
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : hmi:
+        Max. Text Size     : 10
+    
+Text ssid
+    Attributes
+        ID                 : 21
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : 
+        Max. Text Size     : 10
+    
+Text t9
+    Attributes
+        ID                 : 22
+        Scope              : local
+        Send Component ID  : disabled
+        Associated Keyboard: none
+        Text               : ssid:
+        Max. Text Size     : 10
+    
+Picture icon
+    Attributes
+        ID               : 3
+        Scope            : local
+        Send Component ID: disabled
+    
+Button btnBack
+    Attributes
+        ID               : 2
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            prints "^page=player$",0
+        
+Button b0
+    Attributes
+        ID               : 4
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+Button b1
+    Attributes
+        ID               : 5
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_eq
+        
+Button b2
+    Attributes
+        ID               : 6
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_wifi
+        
+Button b3
+    Attributes
+        ID               : 7
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_time
+        
+Button b4
+    Attributes
+        ID               : 8
+        Scope            : local
+        Send Component ID: disabled
+        State            : unpressed
+        Text             : 
+        Max. Text Size   : 10
+    
+    Events
+        Touch Release Event
+            page settings_sys
+        

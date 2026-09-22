@@ -1,0 +1,4 @@
+int apscreenlock=0
+int plTouchY=0,plTouchDelta=0,plTouchMoved=0
+int weatherVisible=0
+int settings_page=3
