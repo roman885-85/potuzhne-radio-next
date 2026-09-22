@@ -28,3 +28,6 @@ build/arduino15/
 tools/vm/cache/
 build/device-work/
 build/nebuild/
+build/
+nextion/tests/
+*.tft
