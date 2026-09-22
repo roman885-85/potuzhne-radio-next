@@ -117,6 +117,9 @@ int main(int argc, char** argv){
     else M.open(pg);
     for(int i = 0; i < 40; i++){ M.render(); M.loop(); s_ms += 20; }
     if(sc){ M.setScroll(sc); for(int i = 0; i < 10; i++){ M.render(); s_ms += 20; } }
+    /*  скільки прокрутки насправді вийшло: стрічці меню (tools/nextion/strip.py) треба
+        знати, де кадр стоїть, інакше останній, упертий у кінець, ліпиться задалеко.  */
+    if(Page* t = M.top()) fprintf(stderr, "scroll=%d\n", (int)t->scroll);
   }else if(!strcmp(scen, "list")){
     M.open(&testPage);
     for(int i = 0; i < 60; i++){ M.render(); s_ms += 20; }
