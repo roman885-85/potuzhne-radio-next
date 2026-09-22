@@ -17,7 +17,7 @@ namespace {
   char      st[96] = "простій";
   volatile bool running = false;
 
-  struct Job { char url[200]; uint32_t baud; uint8_t cid; };
+  struct Job { char url[200]; uint32_t baud; uint8_t cid; uint8_t kind; };   // kind: 0 — заливка .tft, 1 — команди з файлу
 
   void say(uint8_t cid, const char* fmt, ...) {
     char b[200]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
@@ -155,8 +155,52 @@ namespace {
     return ok;
   }
 
+  /*  Файл команд (по одній у рядку) — в екран із підтвердженням кожної (bkcmd=3): для перевірки
+      малювання меню на справжньому екрані й заміру швидкості. */
+  bool runPlay(Job* j) {
+    uint8_t cid = j->cid;
+    bool ok = false;
+    HTTPClient http;
+    WiFiClientSecure sec;
+    WiFiClient plain;
+    do {
+      bool https = strncmp(j->url, "https", 5) == 0;
+      if (https) { sec.setInsecure(); http.begin(sec, j->url); } else http.begin(plain, j->url);
+      http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+      http.setTimeout(15000);
+      int code = http.GET();
+      if (code != 200) { snprintf(st, sizeof st, "команди: HTTP %d", code); say(cid, "%s", st); break; }
+      String body = http.getString();
+      http.end();
+      flushIn(); send("bkcmd=3"); delay(30); flushIn();
+      uint32_t t0 = millis(), bytes = 0, n = 0, bad = 0, worst = 0;
+      char firstErr[64] = "";
+      int from = 0;
+      while (from < (int)body.length()) {
+        int e = body.indexOf('\n', from); if (e < 0) e = body.length();
+        String line = body.substring(from, e); from = e + 1;
+        line.trim();
+        if (!line.length()) continue;
+        uint32_t c0 = millis();
+        send(line.c_str()); bytes += line.length() + 3; n++;
+        char r[16]; size_t k = readReply(r, sizeof r, 1000);
+        uint32_t dt = millis() - c0; if (dt > worst) worst = dt;
+        if (k != 1 || r[0] != 0x01) { bad++; if (!firstErr[0]) snprintf(firstErr, sizeof firstErr, "%u: код %02X (%u байт) %.24s", (unsigned)n, k ? (uint8_t)r[0] : 0, (unsigned)k, line.c_str()); }
+      }
+      uint32_t ms = millis() - t0;
+      send("bkcmd=0"); delay(30); flushIn();
+      snprintf(st, sizeof st, "команд %u, %u байт за %u мс, найдовша %u мс, помилок %u", (unsigned)n, (unsigned)bytes, (unsigned)ms, (unsigned)worst, (unsigned)bad);
+      say(cid, "%s", st);
+      if (bad) say(cid, "перша помилка — %s", firstErr);
+      ok = true;
+    } while (0);
+    http.end();
+    return ok;
+  }
+
   void uploadTask(void* p) {
     Job* j = (Job*)p;
+    if (j->kind == 1) { runPlay(j); finish(true); delete j; vTaskDelete(NULL); return; }
     bool ok = runJob(j);
     /*  Після заливки екран перезавантажується з новим проєктом на його власній швидкості. */
     if (ok) { delay(3000); hSerial.updateBaudRate(NEXTION_BAUD); curBaud = NEXTION_BAUD; flushIn(); }
@@ -179,9 +223,21 @@ namespace NxLink {
     player.sendCommand({PR_STOP, 0});
     delay(80);
     Job* j = new Job();
-    strlcpy(j->url, url, sizeof j->url); j->baud = baud; j->cid = cid;
+    strlcpy(j->url, url, sizeof j->url); j->baud = baud; j->cid = cid; j->kind = 0;
     snprintf(st, sizeof st, "починаю");
     if (xTaskCreatePinnedToCore(uploadTask, "nxup", 8192, j, 2, NULL, 0) != pdPASS) { delete j; finish(false); return false; }
+    return true;
+  }
+
+  bool startPlay(const char* url, uint8_t cid) {
+    if (running || !url || !*url) return false;
+    running = true;
+    nextion.paused = true;
+    delay(80);
+    Job* j = new Job();
+    strlcpy(j->url, url, sizeof j->url); j->baud = 0; j->cid = cid; j->kind = 1;
+    snprintf(st, sizeof st, "команди");
+    if (xTaskCreatePinnedToCore(uploadTask, "nxplay", 8192, j, 2, NULL, 0) != pdPASS) { delete j; finish(false); return false; }
     return true;
   }
 
@@ -204,6 +260,10 @@ namespace NxLink {
       telnet.printf(cid, startUpload(url, baud, cid) ? "##NX#\tзаливку почато\n> " : "##NX#\tне вдалося почати\n> ");
       return true;
     }
+    if (!strncmp(a, "play ", 5)) {
+      telnet.printf(cid, startPlay(a + 5, cid) ? "##NX#\tнадсилаю команди\n> " : "##NX#\tне вдалося почати\n> ");
+      return true;
+    }
     if (!strncmp(a, "cmd ", 4)) {
       nextion.paused = true; delay(80); flushIn();
       send(a + 4);
@@ -214,7 +274,7 @@ namespace NxLink {
       telnet.printf(cid, "\n> ");
       return true;
     }
-    telnet.printf(cid, "##NX#\tкоманди: nx info | nx upload <url> [бод] | nx cmd <команда> | nx status\n> ");
+    telnet.printf(cid, "##NX#\tкоманди: nx info | nx upload <url> [бод] | nx play <url> | nx cmd <команда> | nx status\n> ");
     return true;
   }
 }

@@ -12,8 +12,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SRC = os.path.join(ROOT, 'nextion', 'fonts-src')
 OUT = os.path.join(ROOT, 'build', 'nx', 'fonts')
 
-# Усе, що вміє CP1251 (як у ПОТУЖНЕ: там шрифти саме CP1251 0x20–0xFF), + гривня.
-CHARS = ''.join(bytes([c]).decode('cp1251') for c in range(0x20, 0x100) if c not in (0x7F, 0x98)) + '₴'
+# Усе, що вміє CP1251 (як у ПОТУЖНЕ: там шрифти саме CP1251 0x20–0xFF), і більше — назви станцій і пісень
+# бувають латиницею з діакритикою (é, ü, ñ, ł…): Latin-1 і Latin Extended-A, стрілки, гривня.
+CHARS = ''.join(sorted(set(
+    ''.join(bytes([c]).decode('cp1251') for c in range(0x20, 0x100) if c not in (0x7F, 0x98))
+    + ''.join(chr(c) for c in range(0xA0, 0x180) if c != 0xAD)
+    + '₴←→↑↓‹›‐′″⁄√∞≈≠≤≥'), key=ord))
 CLOCK = ' -0123456789:'
 
 MB, RR, RB, RC = 'Montserrat-Bold.ttf', 'Roboto-Regular.ttf', 'Roboto-Bold.ttf', 'RobotoCondensed-Regular.ttf'

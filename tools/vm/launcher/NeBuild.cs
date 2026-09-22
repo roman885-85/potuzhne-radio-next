@@ -295,6 +295,18 @@ public class Agent : MarshalByRefObject {
                 Call(sf, "sendmoni", arg.Trim(), (ushort)0, false, Encoding.UTF8);
                 return "OK";
             }
+            case "simfile": {        // simfile <шлях> — надіслати в симулятор усі команди з файлу (UTF-8, по одній у рядку)
+                Form sf = null; foreach (Form fm in Application.OpenForms) if (fm.GetType().FullName == "HMIFORM.apprun") sf = fm;
+                if (sf == null) return "ERR симулятор не відкритий";
+                int n = 0;
+                foreach (string ln in File.ReadAllLines(arg.Trim(), Encoding.UTF8)) {
+                    if (ln.Trim().Length == 0) continue;
+                    Call(sf, "sendmoni", ln, (ushort)0, false, Encoding.UTF8); n++;
+                    // симулятор, як і екран, має буфер команд: без пауз — 0x24 «переповнення»
+                    for (int k = 0; k < 4; k++) { Application.DoEvents(); Thread.Sleep(2); }
+                }
+                return "OK " + n;
+            }
             case "simtouch": {       // simtouch x y [мс] — натиснути й відпустити в симуляторі (координати екрана)
                 Form sf = null; foreach (Form fm in Application.OpenForms) if (fm.GetType().FullName == "HMIFORM.apprun") sf = fm;
                 if (sf == null) return "ERR симулятор не відкритий";
@@ -304,6 +316,14 @@ public class Agent : MarshalByRefObject {
                 DateTime until = DateTime.Now.AddMilliseconds(ms); while (DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(10); }
                 Call(scr, "runscr_MouseUp", scr, new MouseEventArgs(MouseButtons.Left, 1, x, y, 0));
                 return "OK";
+            }
+            case "simret": {         // simret [clear] — що симулятор надіслав «до MCU» (hex), за бажанням очистити
+                Form sf = null; foreach (Form fm in Application.OpenForms) if (fm.GetType().FullName == "HMIFORM.apprun") sf = fm;
+                if (sf == null) return "ERR симулятор не відкритий";
+                Control dt = FindControl(sf, "datatext0");
+                string t = dt == null ? "ERR немає datatext0" : dt.Text;
+                if (arg.Trim() == "clear" && dt != null) dt.Text = "";
+                return t;
             }
             case "fields": {         // поля об'єкта за шляхом: form|app|page
                 object o = arg == "app" ? app : arg == "page" ? page : (object)f;

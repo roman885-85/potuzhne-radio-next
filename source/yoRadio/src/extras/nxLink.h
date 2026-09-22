@@ -5,7 +5,7 @@
       за протоколом завантаження Nextion v1.2 — екран сам просить пропустити незмінені шматки.
     На час роботи драйвер yoRadio ставиться на паузу (nextion.paused), щоб не читав UART.
 
-    Консоль (UART/telnet):   nx info · nx upload <url> [бод] · nx cmd <команда> · nx status
+    Консоль (UART/telnet):   nx info · nx upload <url> [бод] · nx play <url> · nx cmd <команда> · nx status
     Веб (GET /?nxupload=<url>) — див. CommandHandler. */
 #include <Arduino.h>
 
