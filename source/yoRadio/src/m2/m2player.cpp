@@ -146,11 +146,13 @@ static void cardLines(char* line1, size_t c1, char* line2, size_t c2){
   }
 }
 
-/*  біжучий рядок вмикаємо лише коли текст не вміщається  */
-static void scrollText(const char* comp, const char* s, const GFXfont* f, int16_t wdev){
-  nxTxt(comp, s);
-  int16_t w = (int16_t)(Gfx::textW(s, f) * 1.5f);
-  nxSet(comp, "en", w > wdev ? 1 : 0);
+/*  Бігучий рядок у Nextion не показує текст, доки не ввімкнений (перевірено в симуляторі),
+    а ввімкнений — смикається навіть коли текст уміщається. Тому поруч стоїть звичайний
+    текст того самого розміру: короткий напис показує він, довгий — бігучий рядок.  */
+static void scrollText(const char* comp, const char* still, const char* s, const GFXfont* f, int16_t wdev){
+  const bool longer = (int16_t)(Gfx::textW(s, f) * 1.5f) > wdev;
+  if(longer){ nxTxt(comp, s); nxVis(still, false); nxVis(comp, true); }
+  else      { nxTxt(still, s); nxVis(comp, false); nxVis(still, true); }
 }
 
 void Player::show(){
@@ -165,7 +167,6 @@ void Player::show(){
 
 void Player::_sendAll(){
   _top(true); _card(true); _clock(true); _row(true); _vol(true);
-  nx("tm1.en=1");                       /* секунди рахує екран сам */
 }
 
 /*  ---------- шапка ---------- */
@@ -194,7 +195,7 @@ void Player::_top(bool force){
   const char* name = radio::stationName();
   if(sermonOn()) name = "Проповідь";
   else if(radio::speaker()) name = "Бездротова колонка";
-  scrollText("nm", name, F_TITLE, 312);
+  scrollText("nm", "nms", name, F_TITLE, 312);
 }
 
 /*  ---------- картка ---------- */
@@ -216,7 +217,7 @@ void Player::_card(bool force){
     nxSet("sq", "pic", NXPL_SQ_CARD);
     nxTxt("ini", "");
     nxVis("ini", false);
-    scrollText("l1", l1, F_ROWB, 270);
+    scrollText("l1", "l1s", l1, F_ROWB, 270);
     nxTxt("l2", l2);
     nxVis("pil", false); nxVis("br", false); nxVis("pb", false);
     nxSet("vc", "val", 0);
@@ -233,7 +234,7 @@ void Player::_card(bool force){
   nxTxt("ini", ini);
   nxSet("ini", "bco", gi < 8 ? PAL[gi] : 0);
   nxVis("ini", ini[0] != 0);
-  scrollText("l1", l1, F_ROWB, 270);
+  scrollText("l1", "l1s", l1, F_ROWB, 270);
   nxTxt("l2", l2);
   const bool playing = radio::playing();
   if(radio::bitrate() && playing){
@@ -242,12 +243,23 @@ void Player::_card(bool force){
   }else{ nxVis("pil", false); nxVis("br", false); }
   nxVis("pb", !playing);
   nxSet("vc", "val", playing ? 1 : 0);
-  /*  Таймер смужок крутити нема сенсу, коли нічого не грає: у нього 38 заливок на кадр,
-      і в покої він тільки віднімає час у годинника й дотиків.  */
+  /*  Таймер смужок увімкнений у самому проєкті (увімкнення командою ззовні його не запускає).
+      Малює він лише коли є що: у тиші висоти не ростуть, а рядок зайнятий — vm це скаже.  */
   nxSet("tm2", "en", playing ? 1 : 0);      /* риски в картці малює екран у своєму таймері */
 }
 
 /*  ---------- годинник, дата, погода ---------- */
+/*  Секунди шле прошивка: таймер екрана на залізі не виконувався, а одна команда на секунду
+    нічого не варта (для порівняння, смужки спектра шлють до сорока).  */
+void Player::_sec(){
+  if(!radio::timeOk()) return;
+  const struct tm& t = radio::now();
+  if(t.tm_sec == _lastSec) return;
+  _lastSec = t.tm_sec;
+  char b[8]; snprintf(b, sizeof(b), "%02d", t.tm_sec);
+  nxTxt("sc", b);
+}
+
 void Player::_clock(bool force){
   struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(3);
   const struct tm& t = radio::now();
@@ -361,6 +373,7 @@ void Player::render(){
     _top(false); _card(false); _clock(false); _row(false); _vol(false);
   }
   if(now - _specT >= 100){ _specT = now; _spectrum(); }
+  _sec();
 }
 
 /*  ---------- дотики (головний цикл) ---------- */

@@ -16,4 +16,12 @@ while time.time() - t < 400:
         if '##NX#' in line: print(time.strftime('%H:%M:%S'), line.split('##NX#', 1)[1].strip(), flush=True)
     if 'готово:' in buf: ok = True; time.sleep(3); break
     if any(k in buf for k in ('HTTP -', 'не відповідає', 'не прийняв', 'обрив', 'не підтвердив', "немає пам'яті", 'не вдалося')): break
-s.close(); sys.exit(0 if ok else 1)
+s.close()
+if not ok:
+    #  Обрив на середині лишає екран у режимі прийому, а радіо — зайнятим: повторюємо самі,
+    #  бо саме на цьому етапі ми вже один раз поклали радіо намертво.
+    print('обрив — повторюю через 40 с', flush=True)
+    time.sleep(40)
+    import subprocess
+    sys.exit(subprocess.call([sys.executable, __file__, url, baud]))
+sys.exit(0)

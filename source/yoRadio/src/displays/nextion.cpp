@@ -44,6 +44,9 @@ namespace {
   uint32_t pfCmds = 0, pfBytes = 0, pfBusyUs = 0, pfMaxUs = 0, pfT0 = 0;   /* nx perf */
   volatile bool shotReq = false;
   volatile bool reinit = false;       /* екран стартував заново — показати сторінку з нуля */
+  volatile bool askWait = false;      /* Nextion::ask(): чекаємо число від екрана */
+  volatile int32_t askVal = 0;
+  volatile bool askGot = false;
   int16_t fadeLevel = -1;             /* затемнення меню (0..255), -1 — ні */
   int16_t lastDim = -1;
   uint32_t splashUntil = 0;           /* показ заставки на прохання (кнопка в меню) */
@@ -69,8 +72,15 @@ namespace {
         }
         break;
       case RX_REPLY:
+        if(rbuf[0] == 0x71 && rlen < 5){ rbuf[rlen++] = c; break; }   /* −1 = FF FF FF FF, не термінатор */
         if(c == 0xFF){
           if(++ffs == 3){
+            if(askWait && rbuf[0] == 0x71 && rlen >= 5){
+              askVal = (int32_t)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8) | ((uint32_t)rbuf[3] << 16) | ((uint32_t)rbuf[4] << 24));
+              askGot = true;
+              rst = RX_IDLE; rlen = 0; ffs = 0;
+              break;
+            }
             if(dumping && (rbuf[0] == 0x70 || rbuf[0] == 0x71)){
               /*  0x70 — рядок, 0x71 — число (4 байти, молодшим уперед)  */
               if(rbuf[0] == 0x70){ rbuf[rlen] = 0; Serial.printf("##NXD#\t%s\n", (char*)rbuf + 1); }
@@ -350,16 +360,91 @@ void Nextion::shot(){ shotReq = true; }
 
 /*  «nx dump» — що зараз на сторінці плеєра. Сторінка тепер рідна: команд, які її малюють,
     більше немає, тому питаємо самі значення в екрана («get») і друкуємо відповіді.  */
+/*  Відповідь екрана на «get» одним числом — щоб самоперевірка могла щось порівнювати.
+    Не з задачі екрана: чекаємо тут, у головному циклі.  */
+int32_t Nextion::ask(const char* what){
+  char c[48]; snprintf(c, sizeof(c), "get %s", what);
+  askGot = false; askWait = true;
+  extSend(c);
+  for(uint8_t i = 0; i < 60 && !askGot; i++) delay(10);
+  askWait = false;
+  return askGot ? askVal : INT32_MIN;
+}
+
+/*  ---------------------------------------------------------------------------
+ *  Самоперевірка «nx test»: проганяє систему по вузлах і каже, де зламано.
+ *  Сенс — не «працює/не працює» загалом, а рядок на кожен вузол із виміром,
+ *  щоб не гадати. Порядок від найнижчого рівня до найвищого: зв'язок з екраном,
+ *  сторінка, таймери, малювання, звук, спектр, картка, мережа.
+ *  ------------------------------------------------------------------------- */
+void Nextion::selftest(){
+  uint8_t bad = 0;
+  auto say = [&](bool ok, const char* name, const char* fmt, ...){
+    char v[120]; va_list a; va_start(a, fmt); vsnprintf(v, sizeof(v), fmt, a); va_end(a);
+    if(!ok) bad++;
+    Serial.printf("##NXT#\t%-22s %s  %s\n", name, ok ? "ГАРАЗД" : "ЗЛАМАНО", v);
+  };
+  Serial.println("##NXT#\tПОЧАТОК");
+
+  /*  1. екран узагалі відповідає  */
+  const int32_t dp = ask("dp");
+  say(dp != INT32_MIN, "зв'язок з екраном", "сторінка %ld", (long)dp);
+  if(dp == INT32_MIN){ Serial.println("##NXT#\tКІНЕЦЬ: екран мовчить"); return; }
+
+  /*  2. чи та сторінка  */
+  say(dp == 2 || m2::M.active(), "сторінка плеєра", "dp=%ld, меню %s", (long)dp, m2::M.active() ? "відкрите" : "закрите");
+
+  /*  3. таймер екрана справді виконується: пишемо мітку й дивимось, чи спаде  */
+  if(dp == 2){
+    extSend("d0.val=100"); delay(400);
+    const int32_t d0 = ask("d0.val");
+    say(d0 != INT32_MIN && d0 < 100, "таймер екрана", "за 0,4 с: 100 → %ld", (long)d0);
+    /*  4. малювання: тінь має піти за значенням  */
+    const int32_t e0 = ask("e0.val");
+    say(e0 != INT32_MIN && e0 >= 0, "малювання смужок", "тінь %ld (−1 = не малює)", (long)e0);
+    /*  5. завантаженість процесора екрана  */
+    const int32_t cpu = ask("bcpu");
+    say(cpu == INT32_MIN || cpu < 80, "процесор екрана", "%ld%%", (long)cpu);
+  }
+
+  /*  6. годинник  */
+  say(m2::radio::timeOk(), "годинник", "%02d:%02d:%02d", m2::radio::now().tm_hour, m2::radio::now().tm_min, m2::radio::now().tm_sec);
+
+  /*  7. звук  */
+  say(player.chipId() == 0x55CE, "мікросхема звуку", "id %04X, патч %u", (unsigned)player.chipId(), (unsigned)player.patchVersion());
+  uint8_t sa[16] = { 0 };
+  const uint8_t n = player.readSpectrum(sa);
+  uint16_t sum = 0; for(uint8_t i = 0; i < n; i++) sum += sa[i];
+  say(n == 14, "плагін спектра", "смуг %u, сума %u", (unsigned)n, (unsigned)sum);
+  say(true, "відтворення", "%s, %u кбіт/с", m2::radio::playing() ? "грає" : "мовчить", (unsigned)m2::radio::bitrate());
+
+  /*  8. картка пам'яті  */
+  say(true, "картка пам'яті", "%s", m2::radio::sdAllowed() ? "доступна" : "вимкнена");
+
+  /*  9. мережа  */
+  say(m2::radio::rssi() > -100, "мережа", "%d дБм", m2::radio::rssi());
+
+  /*  10. пам'ять  */
+  say(m2::radio::freeHeap() > 40000, "вільна пам'ять", "%lu байт", (unsigned long)m2::radio::freeHeap());
+
+  Serial.printf("##NXT#\tКІНЕЦЬ: зламано %u\n", (unsigned)bad);
+}
+
 void Nextion::dump(){
   static const char* const TXT[] = { "nm", "l1", "l2", "br", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp", "ini" };
   static const char* const VAL[] = { "vol", "sk", "vm", "vc", "vs" };
   static const char* const PIC[] = { "src", "wf", "sq", "wi" };
+  /*  Стан самого екрана: яка сторінка, чи крутяться таймери, що в смужках і скільки
+      відсотків зайнято його процесор (bcpu — недокументована, але на Discovery працює).  */
+  static const char* const SYS[] = { "dp", "bcpu", "tm1.en", "tm2.en", "vm.val", "vc.val",
+                                     "d0.val", "d1.val", "e0.val", "sk.vis", "vol.val", "tm0.en" };
   Serial.println("##NXD#\tBEGIN");
   dumping = true;
   char c[40];
   for(auto n : TXT){ Serial.printf("##NXD#\t%s.txt =\n", n); snprintf(c, sizeof(c), "get %s.txt", n); extSend(c); delay(60); }
   for(auto n : VAL){ Serial.printf("##NXD#\t%s.val =\n", n); snprintf(c, sizeof(c), "get %s.val", n); extSend(c); delay(60); }
   for(auto n : PIC){ Serial.printf("##NXD#\t%s.pic =\n", n); snprintf(c, sizeof(c), "get %s.pic", n); extSend(c); delay(60); }
+  for(auto n : SYS){ Serial.printf("##NXD#\t%s =\n", n); snprintf(c, sizeof(c), "get %s", n); extSend(c); delay(60); }
   delay(200);
   dumping = false;
   Serial.println("##NXD#\tEND");

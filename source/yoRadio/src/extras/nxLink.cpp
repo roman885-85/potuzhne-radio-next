@@ -200,10 +200,28 @@ namespace {
     return ok;
   }
 
+  /*  Сторож заливки: якщо заливка обірвалась і задача застрягла, радіо лишалось
+      мертвим — консоль мовчить, екран на паузі, і оживити його можна лише вимиканням
+      живлення (автоскидання на цій платі немає). Тому будь-яка заливка має кінець:
+      не вклалась у відведений час — перезапускаємо радіо самі.  */
+  volatile uint32_t upDeadline = 0;
+
+  void upGuardTask(void*){
+    for(;;){
+      if(upDeadline && (int32_t)(millis() - upDeadline) > 0){
+        Serial.println("##NX#\tзаливка не вклалась у час — перезапускаю радіо");
+        delay(200);
+        ESP.restart();
+      }
+      vTaskDelay(pdMS_TO_TICKS(500));
+    }
+  }
+
   void uploadTask(void* p) {
     Job* j = (Job*)p;
     if (j->kind == 1) { runPlay(j); finish(true); delete j; vTaskDelete(NULL); return; }
     bool ok = runJob(j);
+    upDeadline = 0;
     /*  Після заливки екран перезавантажується з новим проєктом — радіо теж, щоб почати з ним наново
         (сторінки, швидкість зв'язку, повне малювання). */
     if (ok) { delay(3000); ESP.restart(); }
@@ -223,6 +241,10 @@ namespace NxLink {
     if (baud == 0) baud = 115200;
     running = true;
     nextion.paused = true;
+    /*  Стеля на всю заливку: 8,7 МБ на 921600 бод іде близько 5 хв, беремо вчетверо.  */
+    upDeadline = millis() + 20UL * 60UL * 1000UL;
+    static bool guard = false;
+    if(!guard){ guard = true; xTaskCreatePinnedToCore(upGuardTask, "nxguard", 2048, NULL, 1, NULL, 0); }
     player.lockOutput = true;    /* зупинка не має скидати «автостарт» */
     player.sendCommand({PR_STOP, 0});
     delay(80);
@@ -237,6 +259,9 @@ namespace NxLink {
     if (running || !url || !*url) return false;
     running = true;
     nextion.paused = true;
+    upDeadline = millis() + 5UL * 60UL * 1000UL;
+    static bool guard2 = false;
+    if(!guard2){ guard2 = true; xTaskCreatePinnedToCore(upGuardTask, "nxguard2", 2048, NULL, 1, NULL, 0); }
     delay(80);
     Job* j = new Job();
     strlcpy(j->url, url, sizeof j->url); j->baud = 0; j->cid = cid; j->kind = 1;
@@ -289,6 +314,13 @@ namespace NxLink {
       yobt::setWanted(on);
       return true;
     }
+    if (!strcmp(a, "reboot")) {
+      /*  перевірка холодного старту без рук: «nx reboot»  */
+      telnet.printf(cid, "##NX#\tперезапуск\n> ");
+      delay(200);
+      ESP.restart();
+      return true;
+    }
     if (!strcmp(a, "zones")) {
       static const char* const NM[7] = { "інше", "шапка", "картка", "годинник", "рядок", "гучність", "спектр" };
       char b[200]; int k = 0;
@@ -300,6 +332,11 @@ namespace NxLink {
     if (!strcmp(a, "perf")) {
       char b[200]; nextion.perf(b, sizeof b);
       telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
+    if (!strcmp(a, "test")) {
+      nextion.selftest();
+      telnet.printf(cid, "##NX#\tсамоперевірка в консолі\n> ");
       return true;
     }
     if (!strcmp(a, "dump")) {

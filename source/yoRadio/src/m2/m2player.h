@@ -51,6 +51,7 @@ class Player {
     void _top(bool force);
     void _card(bool force);
     void _clock(bool force);
+    void _sec();                         /* секунди: раз на секунду, окремо від решти */
     void _row(bool force);
     void _vol(bool force);
     void _spectrum();

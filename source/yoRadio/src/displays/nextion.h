@@ -44,6 +44,10 @@ class Nextion {
     void  shot();
     /*  що зараз на рідній сторінці «pl»: питаємо в екрана значення компонентів (nx dump)  */
     void  dump();
+    /*  Самоперевірка: проганяє систему по всіх вузлах і каже, де саме зламано (nx test)  */
+    void  selftest();
+    /*  прочитати число з екрана (get …): -2147483648 — не відповів  */
+    int32_t ask(const char* what);
     void  touch(int16_t x, int16_t y);   /* nx touch x y — перевірка без пальця */
     /*  заміри з минулого разу (nx perf)  */
     void  perf(char* out, size_t cap);

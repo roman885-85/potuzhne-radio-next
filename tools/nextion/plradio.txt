@@ -1,0 +1,47 @@
+vis sk,0
+vis tpo,0
+vis tdu,0
+vis bp,0
+vis bn,0
+vis f0,0
+vis f1,0
+vis f2,0
+vis f3,0
+vis f4,0
+vis f5,0
+vis fi0,0
+vis fi1,0
+vis fi2,0
+vis fi3,0
+vis fi4,0
+vis fi5,0
+vis pb,0
+nm.txt="Radio Relax HD"
+ini.txt="Ra"
+l1.txt="Milk And Toast And Honey"
+l2.txt="Roxette"
+br.txt="320 кбіт/с · MP3"
+ck.txt="23:31"
+sc.txt="07"
+wd.txt="Вівторок"
+dt.txt="22 вересня"
+tp.txt="16°"
+vol.val=160
+vp.txt="63%"
+vm.val=0
+vc.val=1
+d0.val=40
+d1.val=70
+d2.val=90
+d3.val=60
+d4.val=45
+d5.val=75
+d6.val=95
+d7.val=50
+d8.val=35
+d9.val=65
+d10.val=80
+d11.val=55
+d12.val=42
+d13.val=68
+tm2.en=1

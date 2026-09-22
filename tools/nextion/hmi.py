@@ -51,6 +51,9 @@ class Page:
         return self.set(name, **atts)
 
     def event(self, obj, ev, code):
+        #  Nextion не виконує рядок коду, що починається з пробілу: так мовчки не працював
+        #  таймер годинника, хоч сусідній таймер із тим самим кодом без відступів — працював.
+        code = '\r\n'.join(l.strip() for l in code.replace('\r\n', '\n').split('\n'))
         self._put(obj, {"com": "setevent", "objname": obj, "eventname": ev, "eventcode": code})
         return self
 

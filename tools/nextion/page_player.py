@@ -216,12 +216,14 @@ def build(p, meta, out_dir):
     pg.add('variable', 'vs', sta=0, val=0)
     for k in range(NBAR): pg.add('variable', 'd%d' % k, sta=0, val=0)                   # висоти смужок 0..100
     for k in range(NBAR): pg.add('variable', 'e%d' % k, sta=0, val=-1)                  # що вже намальовано
-    pg.add('timer', 'tm2', tim=50, en=0)   # 50 мс — мінімум для таймера Nextion, тобто стеля 20 кадрів/с
+    for k in range(5): pg.add('variable', 'c%d' % k, sta=0, val=-1)                     # те саме для рисок картки
+    pg.add('timer', 'tm2', tim=50, en=1)   # 50 мс — мінімум для таймера Nextion, тобто стеля 20 кадрів/с
     pg.add('variable', 'vv', sta=0, val=0)
     pg.add('variable', 'vq', sta=0, val=0)
-    pg.add('variable', 'vm', sta=0, val=0)   # 0 спектр, 1 обране, 2 пульт
+    pg.add('variable', 'vm', sta=0, val=3)   # 0 спектр, 1 обране, 2 пульт, 3 ще нічого
     pg.add('variable', 'vc', sta=0, val=0)   # 1 — грає (риски в картці живі)
-    pg.add('timer', 'tm1', tim=1000, en=0)
+    #  таймер секунд прибрано: на залізі він не виконувався, хоч сусідній працював.
+    #  Секунди шле прошивка раз на секунду — це одна команда, дешевше за пошуки причини.
     # зони дотику: усе вище рядка (0), третій рядок (1)
     pg.add('hotspot', 'tz', x=0, y=0, w=480, h=Y(182) - 8)
     pg.add('hotspot', 'tr', x=0, y=Y(182) - 8, w=480, h=Y(207) - Y(182) + 8)
@@ -229,14 +231,18 @@ def build(p, meta, out_dir):
     # компоненти відображення
     pg.add('picture', 'src', x=sx, y=sy, w=ss, h=ss, pic=ids['SRC0'])
     pg.add('scrolltext', 'nm', **tbox('title', 42, 25, X(250) - X(42)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'],
-           dir=1, dis=3, tim=80, en=0, txt='', txt_maxl=96)
+           dir=1, dis=3, tim=80, en=1, txt='', txt_maxl=96)
+    pg.add('text', 'nms', **tbox('title', 42, 25, X(250) - X(42)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'],
+           xcen=0, ycen=0, txt='', txt_maxl=96)
     pg.add('picture', 'wf', x=wx, y=wy, w=24, h=18, pic=ids['WIFI0'])
     pg.add('picture', 'sq', x=X(18), y=Y(50), w=X(76) - X(18), h=Y(108) - Y(50), pic=ids['SQ0'])
     m = meta['mid']
     pg.add('text', 'ini', x=X(18) + 6, y=Y(87) - m['asc'], w=X(76) - X(18) - 12, h=m['h'], font=m['id'], pco=65535, sta=1,
            bco=PAL[0], xcen=1, ycen=0, txt='', txt_maxl=12)
     pg.add('scrolltext', 'l1', **tbox('rowb', 86, 68, X(266) - X(86)), pco=c565(C['TXT']), sta=1, bco=c565(C['SURF']),
-           dir=1, dis=3, tim=80, en=0, txt='', txt_maxl=160)
+           dir=1, dis=3, tim=80, en=1, txt='', txt_maxl=160)
+    pg.add('text', 'l1s', **tbox('rowb', 86, 68, X(266) - X(86)), pco=c565(C['TXT']), sta=1, bco=c565(C['SURF']),
+           xcen=0, ycen=0, txt='', txt_maxl=160)
     pg.add('text', 'l2', **tbox('row', 86, 86, X(266) - X(86)), pco=c565(C['TXT2']), sta=1, bco=c565(C['SURF']), xcen=0, ycen=0, txt='', txt_maxl=160)
     pg.add('picture', 'pil', x=X(86), y=Y(93), w=X(236) - X(86), h=Y(109) - Y(93), pic=ids['PILL'])
     m = meta['sm']
@@ -281,39 +287,33 @@ def build(p, meta, out_dir):
     # Спектр малює сам екран: ESP32 лише піднімає d0..d13, коли стало гучніше,
     # а падіння (по 3 за кадр) і перемальовування — тут. Так по шині майже нічого не їде.
     code = []
-    def bar(var, shd, x, bottom, h, w, bg, fg):
-        #  Екран обробляє події строго по черзі: доки код таймера не доробив, дотик не
-        #  обробиться взагалі (EG: «a next-event will not be processed until the current
-        #  event has completed»). Тому малюємо лише те, що справді змінилось.
+    def bar(var, x, bottom, h, w, bg, fg):
+        #  Малюємо щоразу, без перевірки «чи змінилось»: Nextion не виконує вираз із двома
+        #  змінними одразу — код події мовчки уривається (перевірено на залізі: смужки
+        #  спадали, бо це до порівняння, а малювання після нього — ні). Дві заливки на
+        #  смужку коштують ≈0,1 мс, усі 38 — близько 4 мс із 50, тож економія й не потрібна.
         code.append('if(%s.val>4)' % var); code.append('{'); code.append('%s.val=%s.val-3' % (var, var)); code.append('}')
-        code.append('if(%s.val!=%s.val)' % (shd, var)); code.append('{')
-        code.append('%s.val=%s.val' % (shd, var))
         code.append('vv.val=%s.val*%d' % (var, h)); code.append('vv.val=vv.val/100')
         code.append('vq.val=%d-vv.val' % h)
         code.append('fill %d,%d,%d,vq.val,%d' % (x, bottom - h, w, bg))
         code.append('vq.val=%d-vv.val' % bottom)
         code.append('fill %d,vq.val,%d,vv.val,%d' % (x, w, fg))
-        code.append('}')
     code.append('if(vm.val==0)'); code.append('{')                  # рядок спектра зайнятий іншим — не малюємо
     for k in range(NBAR):
-        bar('d%d' % k, 'e%d' % k, int(round(SPX0 + k * SPSTEP)), SPB, SPH, SPW, c565(C['BG']), c565(C['ACC']))
+        bar('d%d' % k, int(round(SPX0 + k * SPSTEP)), SPB, SPH, SPW, c565(C['BG']), c565(C['ACC']))
     code.append('}')
     code.append('if(vc.val==1)'); code.append('{')
     for k, src in enumerate((2, 5, 8, 11, 13)):                     # риски в картці — з тих самих смужок
         bar_x = int(round(CBX + k * 5 * K))
-        code.append('if(e%d.val!=d%d.val)' % (src, src)); code.append('{')
         code.append('vv.val=d%d.val*%d' % (src, CBH)); code.append('vv.val=vv.val/100')
         code.append('vq.val=%d-vv.val' % CBH)
         code.append('fill %d,%d,%d,vq.val,%d' % (bar_x, CBY - CBH, CBW, c565(C['SURF'])))
         code.append('vq.val=%d-vv.val' % CBY)
         code.append('fill %d,vq.val,%d,vv.val,%d' % (bar_x, CBW, c565(C['ACC'])))
-        code.append('}')
     code.append('}')
     code.append('doevents')             # дати екрану доробити перемальовку до наступного тику
     pg.event('tm2', 'timer', '\r\n'.join(code))
 
-    # секунди: екран рахує сам, ESP32 раз на хвилину звіряє
-    pg.event('tm1', 'timer', 'vs.val=vs.val+1\r\nif(vs.val>59)\r\n{\r\n  vs.val=0\r\n}\r\ncovx vs.val,sc.txt,2,0')
     # геометрія рядка спектра — прошивці, щоб гасити його при зміні режиму
     ids['SPX'] = SPX0; ids['SPTOP'] = SPB - SPH; ids['SPW'] = SPX1 - SPX0; ids['SPH'] = SPH
     ids['BGCOL'] = c565(C['BG']); ids['NBAR'] = NBAR
