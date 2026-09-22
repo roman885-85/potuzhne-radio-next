@@ -1,0 +1,10 @@
+# ПОТУЖНЕ РАДІО (Nextion), флеш 4 МБ.
+# factory — «оновлювач» (Wi-Fi + HTTPS): качає з GitHub прошивку, файли сторінки й .tft екрана.
+# app0    — основна прошивка: радіо + Bluetooth-колонка.
+# Name,    Type, SubType,  Offset,   Size,     Flags
+nvs,       data, nvs,      0x9000,   0x5000,
+otadata,   data, ota,      0xe000,   0x2000,
+factory,   app,  factory,  0x10000,  0x110000,
+app0,      app,  ota_0,    0x120000, 0x2B0000,
+spiffs,    data, spiffs,   0x3D0000, 0x20000,
+coredump,  data, coredump, 0x3F0000, 0x10000,

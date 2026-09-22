@@ -210,8 +210,10 @@ function Complete-FileDialog([string]$path, [int]$TimeoutSec = 20) {
             }
             if ($edit) {
                 $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($path)
-                $edit.SetFocus()
-                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                Start-Sleep -Milliseconds 300
+                # підтвердити: WM_COMMAND IDOK у вікно діалогу. Enter через SendKeys іде у вікно з фокусом (не завжди
+                # діалог), а Invoke кнопки «Зберегти» з вкладеного модального ланцюжка нічого не робить.
+                [void][Msg]::PostMessage([IntPtr]$dlg.Current.NativeWindowHandle, 0x0111, [IntPtr]1, [IntPtr]::Zero)
                 return "у діалозі: $path"
             }
         }

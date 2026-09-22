@@ -8,6 +8,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
@@ -21,9 +22,36 @@ public class Agent : MarshalByRefObject {
 
     public void Start() {
         Directory.CreateDirectory(Dir);
+        // Помилки інтерфейсу редактора — у файл замість модального вікна «Unhandled exception»,
+        // яке зупиняє автоматичну збірку до натискання кнопки.
+        Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e) {
+            try { File.AppendAllText(Path.Combine(Dir, "exceptions.txt"), DateTime.Now.ToString("HH:mm:ss ") + e.Exception + "\r\n\r\n", Encoding.UTF8); } catch { }
+        };
         Thread t = new Thread(Loop);
         t.IsBackground = true;
         t.Start();
+        Thread e8 = new Thread(Utf8ForNewProjects);
+        e8.IsBackground = true;
+        e8.Start();
+    }
+
+    // Кодування нового проєкту редактор бере з Encoding.Default системи (AppServer.MyHmiinit →
+    // AppData.newfileencodeid): на Windows з кирилицею це windows-1251, BodyName «koi8-r» → 22.
+    // Нам треба utf-8 (24): тексти з ESP32 ідуть у UTF-8. Щойно редактор виставить значення — замінюємо,
+    // ще до того, як LoadFrom створить проєкт.
+    static void Utf8ForNewProjects() {
+        DateTime end = DateTime.Now.AddSeconds(120);
+        while (DateTime.Now < end) {
+            try {
+                FieldInfo fi = FindType("hmitype.AppData").GetField("newfileencodeid", ALL);
+                object v = fi.GetValue(null);
+                if (Convert.ToInt32(v) != 0) {
+                    if (Convert.ToInt32(v) != 24) fi.SetValue(null, Convert.ChangeType(24, fi.FieldType));
+                    return;
+                }
+            } catch { }
+            Thread.Sleep(1);
+        }
     }
 
     static Form MainForm() {
@@ -32,6 +60,12 @@ public class Agent : MarshalByRefObject {
     }
 
     void Loop() {
+        while (true) {
+            try { Loop1(); } catch { Thread.Sleep(1000); }      // спільна тека зникає, коли ВМ на паузі, — не вмирати
+        }
+    }
+
+    void Loop1() {
         string cmdf = Path.Combine(Dir, "cmd.txt"), outf = Path.Combine(Dir, "out.txt");
         while (true) {
             Thread.Sleep(200);
@@ -51,6 +85,14 @@ public class Agent : MarshalByRefObject {
     }
 
     // ---------------------------------------------------------------- reflection helpers
+    static void FindCtl(Control c, int w, int h, StringBuilder sb) {
+        if (c.Visible && c.ClientSize.Width == w && c.ClientSize.Height == h) {
+            Point p = c.PointToScreen(Point.Empty);
+            sb.Append(c.FindForm().GetType().FullName).Append(' ').Append(c.GetType().Name).Append(' ').Append(c.Name)
+              .Append(' ').Append(p.X).Append(' ').Append(p.Y).Append(' ').Append(w).Append(' ').Append(h).Append('\n');
+        }
+        foreach (Control ch in c.Controls) FindCtl(ch, w, h, sb);
+    }
     static object Get(object o, string name) {
         Type t = o is Type ? (Type)o : o.GetType();
         object inst = o is Type ? null : o;
@@ -117,7 +159,9 @@ public class Agent : MarshalByRefObject {
         PropertyInfo items = c.GetType().GetProperty("Items");
         IList it = (IList)items.GetValue(c, null);
         for (int i = 0; i < it.Count; i++) if (it[i].ToString() == v) { c.GetType().GetProperty("SelectedIndex").SetValue(c, i, null); return; }
-        throw new Exception("у списку " + c.Name + " немає «" + v + "»");
+        // немає в списку (напр. нестандартна висота шрифту) — пишемо текстом, якщо список це дозволяє
+        c.Text = v;
+        if (c.Text != v) throw new Exception("у списку " + c.Name + " немає «" + v + "»");
     }
     static void SetChecked(Control c, bool v) { c.GetType().GetProperty("Checked").SetValue(c, v, null); }
 
@@ -174,6 +218,92 @@ public class Agent : MarshalByRefObject {
                     sb.Append("   codes: ").Append(codes == null ? "null" : codes.Count.ToString()).Append('\n');
                 }
                 return sb.ToString();
+            }
+            case "pget": {           // pget app|page|form[.поле.поле…] — значення або всі поля кінцевого об'єкта (і структур)
+                string[] q = arg.Trim().Split('.');
+                object o = q[0] == "app" ? app : q[0] == "page" ? page : q[0].StartsWith("T:") ? (object)FindType(q[0].Substring(2).Replace('/', '.')) : (object)f;
+                for (int i = 1; i < q.Length; i++) {
+                    int ix; string nm = q[i];
+                    if (nm.EndsWith("]") && nm.Contains("[")) {
+                        ix = int.Parse(nm.Substring(nm.IndexOf('[') + 1).TrimEnd(']')); nm = nm.Substring(0, nm.IndexOf('['));
+                        o = ((IList)Get(o, nm))[ix];
+                    } else o = Get(o, nm);
+                    if (o == null) return "null";
+                }
+                Type ot = o.GetType();
+                if (ot.IsPrimitive || o is string || ot.IsEnum) return ot.Name + " " + o;
+                StringBuilder sb = new StringBuilder(); sb.Append(ot.FullName).Append('\n');
+                IList lst = o as IList;
+                if (lst != null) {
+                    sb.Append("Count = ").Append(lst.Count).Append('\n');
+                    for (int i = 0; i < lst.Count && i < 200; i++) {
+                        object e = lst[i]; sb.Append('[').Append(i).Append("] ");
+                        if (e == null) { sb.Append("null\n"); continue; }
+                        if (e.GetType().IsPrimitive || e is string) { sb.Append(e).Append('\n'); continue; }
+                        foreach (FieldInfo fi in e.GetType().GetFields(ALL)) {
+                            if (fi.IsStatic) continue;
+                            object v = null; try { v = fi.GetValue(e); } catch { }
+                            sb.Append(fi.Name).Append('=').Append(v).Append(' ');
+                        }
+                        sb.Append('\n');
+                    }
+                    return sb.ToString();
+                }
+                foreach (FieldInfo fi in ot.GetFields(ALL)) {
+                    if (fi.IsStatic) continue;
+                    object v = null; try { v = fi.GetValue(o); } catch { }
+                    string s2 = v == null ? "null" : v.ToString(); if (s2.Length > 80) s2 = s2.Substring(0, 80) + "…";
+                    sb.Append(fi.FieldType.Name).Append(' ').Append(fi.Name).Append(" = ").Append(s2).Append('\n');
+                }
+                return sb.ToString();
+            }
+            case "pset": {           // pset app|page.поле.поле <значення> — записати поле (структури записуються назад)
+                int sp = arg.IndexOf(' '); string path = arg.Substring(0, sp).Trim(), val = arg.Substring(sp + 1).Trim();
+                string[] q = path.Split('.');
+                object root = q[0] == "app" ? app : q[0] == "page" ? page : (object)f;
+                object[] chain = new object[q.Length]; chain[0] = root;
+                for (int i = 1; i < q.Length - 1; i++) chain[i] = Get(chain[i - 1], q[i]);
+                for (int i = q.Length - 1; i >= 1; i--) {
+                    object owner = chain[i - 1]; FieldInfo fi = null;
+                    for (Type x = owner.GetType(); x != null && fi == null; x = x.BaseType) fi = x.GetField(q[i], ALL | BindingFlags.DeclaredOnly);
+                    if (fi == null) return "ERR немає поля " + q[i];
+                    object nv = i == q.Length - 1 ? Convert.ChangeType(val, fi.FieldType, System.Globalization.CultureInfo.InvariantCulture) : chain[i];
+                    fi.SetValue(owner, nv);
+                    if (!owner.GetType().IsValueType) break;          // далі записувати назад не треба
+                }
+                return "OK";
+            }
+            case "save": {           // зберегти відкритий проєкт (main.filecaozuo("save",""))
+                object r = null; f.Invoke(new MethodInvoker(delegate { r = Call(f, "filecaozuo", "save", ""); }));
+                return "OK " + r;
+            }
+            case "ctlrect": {        // ctlrect <w> <h> — екранний прямокутник елемента такого розміру (екран симулятора)
+                string[] q = arg.Trim().Split(' '); int w = int.Parse(q[0]), h = int.Parse(q[1]);
+                StringBuilder sb = new StringBuilder();
+                foreach (Form fm in Application.OpenForms) FindCtl(fm, w, h, sb);
+                return sb.Length == 0 ? "ERR немає" : sb.ToString();
+            }
+            case "closeform": {      // closeform <підрядок типу форми> — закрити такі форми
+                int n = 0; List<Form> fl = new List<Form>();
+                foreach (Form fm in Application.OpenForms) if (fm.GetType().FullName.Contains(arg.Trim()) && fm != f) fl.Add(fm);
+                foreach (Form fm in fl) { fm.Close(); n++; }
+                return "OK " + n;
+            }
+            case "sim": {            // sim <команда Nextion> — надіслати в симулятор (вікно Debug) як від MCU
+                Form sf = null; foreach (Form fm in Application.OpenForms) if (fm.GetType().FullName == "HMIFORM.apprun") sf = fm;
+                if (sf == null) return "ERR симулятор не відкритий";
+                Call(sf, "sendmoni", arg.Trim(), (ushort)0, false, Encoding.UTF8);
+                return "OK";
+            }
+            case "simtouch": {       // simtouch x y [мс] — натиснути й відпустити в симуляторі (координати екрана)
+                Form sf = null; foreach (Form fm in Application.OpenForms) if (fm.GetType().FullName == "HMIFORM.apprun") sf = fm;
+                if (sf == null) return "ERR симулятор не відкритий";
+                string[] q = arg.Trim().Split(' '); int x = int.Parse(q[0]), y = int.Parse(q[1]), ms = q.Length > 2 ? int.Parse(q[2]) : 80;
+                object scr = Get(sf, "runscr1");
+                Call(scr, "runscr_MouseDown", scr, new MouseEventArgs(MouseButtons.Left, 1, x, y, 0));
+                DateTime until = DateTime.Now.AddMilliseconds(ms); while (DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(10); }
+                Call(scr, "runscr_MouseUp", scr, new MouseEventArgs(MouseButtons.Left, 1, x, y, 0));
+                return "OK";
             }
             case "fields": {         // поля об'єкта за шляхом: form|app|page
                 object o = arg == "app" ? app : arg == "page" ? page : (object)f;
@@ -256,6 +386,11 @@ public class Agent : MarshalByRefObject {
                     sb.Append(")\n");
                 }
                 foreach (FieldInfo fi in t.GetFields(ALL)) sb.Append("F ").Append(fi.IsStatic ? "static " : "").Append(fi.FieldType.FullName).Append(' ').Append(fi.Name).Append('\n');
+                foreach (MethodInfo mi in t.GetMethods(ALL | BindingFlags.DeclaredOnly)) {
+                    sb.Append("M ").Append(mi.IsStatic ? "static " : "").Append(mi.ReturnType.Name).Append(' ').Append(mi.Name).Append('(');
+                    foreach (ParameterInfo pi in mi.GetParameters()) sb.Append(pi.ParameterType.Name).Append(' ').Append(pi.Name).Append(", ");
+                    sb.Append(")\n");
+                }
                 return sb.ToString();
             }
             case "fontform": {       // елементи відкритого генератора шрифтів (Tools → Font Generator)
@@ -351,9 +486,10 @@ public class Agent : MarshalByRefObject {
                         } else if (il[i] >= 0x15 && il[i] <= 0x1E) { sb.Append("  ldc ").Append(il[i] - 0x16).Append('\n');
                         } else if (il[i] == 0x1F) { sb.Append("  ldc ").Append((sbyte)il[i + 1]).Append('\n'); i += 1;
                         } else if (il[i] >= 0x02 && il[i] <= 0x05) { sb.Append("  ldarg").Append(il[i] - 2).Append('\n');
-                        } else if (il[i] == 0x7B || il[i] == 0x7E) {   // ldfld / ldsfld
+                        } else if (il[i] == 0x7B || il[i] == 0x7E || il[i] == 0x7D || il[i] == 0x80) {   // ldfld / ldsfld / stfld / stsfld
                             int tok = BitConverter.ToInt32(il, i + 1);
-                            try { FieldInfo fi = m.Module.ResolveField(tok); sb.Append("  fld ").Append(fi.Name).Append('\n'); i += 4; } catch { }
+                            string kind = il[i] == 0x7D || il[i] == 0x80 ? "  STORE " : "  fld ";
+                            try { FieldInfo fi = m.Module.ResolveField(tok); sb.Append(kind).Append(fi.DeclaringType.Name).Append('.').Append(fi.Name).Append('\n'); i += 4; } catch { }
                         } else if (il[i] == 0x28 || il[i] == 0x6F || il[i] == 0x73) {   // call / callvirt / newobj
                             int tok = BitConverter.ToInt32(il, i + 1);
                             if ((tok >> 24) == 0x0A || (tok >> 24) == 0x06 || (tok >> 24) == 0x2B) { try { MethodBase mb = m.Module.ResolveMethod(tok); sb.Append("  call ").Append(mb.DeclaringType.Name).Append('.').Append(mb.Name).Append('\n'); i += 4; } catch { } }
@@ -458,6 +594,23 @@ public class Agent : MarshalByRefObject {
                 string[] q = arg.Split(' ');
                 object v = Get(FindType(q[0]), q[1]);
                 return v == null ? "null" : v.ToString();
+            }
+            case "clickitem": {      // clickitem <текст> — «натиснути» пункт меню/панелі DotNetBar головної форми (без очікування)
+                string want = arg.Trim();
+                foreach (FieldInfo fi in f.GetType().GetFields(ALL)) {
+                    object it = fi.GetValue(f);
+                    if (it == null || it.GetType().Namespace == null || !it.GetType().Namespace.StartsWith("DevComponents")) continue;
+                    PropertyInfo tp = it.GetType().GetProperty("Text");
+                    if (tp == null) continue;
+                    string txt = tp.GetValue(it, null) as string;
+                    if (txt == null || txt.Replace("&", "").Trim() != want) continue;
+                    MethodInfo rc = it.GetType().GetMethod("RaiseClick", ALL, null, Type.EmptyTypes, null);
+                    if (rc == null) return "ERR у " + fi.Name + " немає RaiseClick";
+                    object target = it;
+                    f.BeginInvoke(new MethodInvoker(delegate { rc.Invoke(target, null); }));
+                    return "OK " + fi.Name;
+                }
+                return "ERR немає пункту «" + want + "»";
             }
             default: return "ERR невідома команда " + verb;
         }

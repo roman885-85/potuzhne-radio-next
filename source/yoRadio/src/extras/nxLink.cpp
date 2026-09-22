@@ -90,8 +90,10 @@ namespace {
     running = false;
   }
 
-  void uploadTask(void* p) {
-    Job* j = (Job*)p;
+  /*  Уся робота — тут, а не в самій задачі: задача закінчується vTaskDelete(NULL), звідки керування
+      не повертається, і деструктори локальних HTTPClient/WiFiClientSecure не викликались би —
+      кожна заливка лишала в пам'яті TLS-контекст (після двох заливок вільно 56 КБ, шматок 15 КБ). */
+  bool runJob(Job* j) {
     uint8_t cid = j->cid;
     bool ok = false;
     uint8_t* buf = nullptr;
@@ -103,6 +105,7 @@ namespace {
       say(cid, "екран: %s (%lu бод)", info, (unsigned long)curBaud);
 
       bool https = strncmp(j->url, "https", 5) == 0;
+      say(cid, "пам'ять: вільно %u, найбільший шматок %u", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
       if (https) { sec.setInsecure(); http.begin(sec, j->url); } else http.begin(plain, j->url);
       http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
       http.setTimeout(15000);
@@ -149,6 +152,12 @@ namespace {
     } while (0);
     free(buf);
     http.end();
+    return ok;
+  }
+
+  void uploadTask(void* p) {
+    Job* j = (Job*)p;
+    bool ok = runJob(j);
     /*  Після заливки екран перезавантажується з новим проєктом на його власній швидкості. */
     if (ok) { delay(3000); hSerial.updateBaudRate(NEXTION_BAUD); curBaud = NEXTION_BAUD; flushIn(); }
     finish(ok);

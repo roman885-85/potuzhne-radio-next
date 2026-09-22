@@ -56,6 +56,11 @@ echo ">>> компіляція основної прошивки"
   --build-property "upload.maximum_size=$APP_MAX" \
   --build-path "$B/bp" --output-dir "$B/out" "$SKETCH"
 
+echo ">>> компіляція оновлювача (розділ factory)"
+"$CLI" --config-file "$B/arduino-cli.yaml" compile --fqbn "$FQBN" \
+  --build-property "upload.maximum_size=$((0x110000))" \
+  --build-path "$B/bp-upd" --output-dir "$B/out-upd" "$ROOT/source/updater"
+
 echo ">>> образ файлової системи (сторінка, станції)"
 MKSPIFFS=$(ls -d "$A15"/packages/esp32/tools/mkspiffs/*/mkspiffs | head -1)
 "$MKSPIFFS" -c "$SKETCH/data" -b 4096 -p 256 -s 0x20000 "$B/out/yoRadio.spiffs.bin" > /dev/null
@@ -69,5 +74,11 @@ cp yoRadio.ino.bootloader.bin "$HERE/$N-bootloader.bin"
 cp yoRadio.ino.partitions.bin "$HERE/$N-partitions.bin"
 cp yoRadio.spiffs.bin         "$HERE/$N-files.bin"
 cp boot_app0.bin              "$HERE/boot_app0.bin"
-SZ=$(stat -f %z yoRadio.ino.bin)
+cp "$B/out-upd/updater.ino.bin" "$HERE/$N-updater.bin"
+#  Повний образ для першого встановлення по USB (без SPIFFS — станції й мережі на радіо лишаються):
+"$ESPTOOL" --chip esp32 merge_bin -o "$HERE/$N-full.bin" --flash_mode dio --flash_freq 80m --flash_size 4MB \
+  0x1000 yoRadio.ino.bootloader.bin 0x8000 yoRadio.ino.partitions.bin 0xe000 boot_app0.bin \
+  0x10000 "$B/out-upd/updater.ino.bin" 0x120000 yoRadio.ino.bin > /dev/null
+SZ=$(stat -f %z yoRadio.ino.bin); SU=$(stat -f %z "$B/out-upd/updater.ino.bin")
+echo ">>> оновлювач $SU байт із $((0x110000)) ($((SU*100/0x110000))%)"
 echo ">>> готово: версія $VER від $BUILD; прошивка $SZ байт із $APP_MAX ($((SZ*100/APP_MAX))%)"

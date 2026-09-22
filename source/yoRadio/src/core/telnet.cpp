@@ -5,6 +5,7 @@
 #include "network.h"
 #include "telnet.h"
 #include "../extras/nxLink.h"
+#include "../extras/yoUpd.h"
 //#include "esp_heap_caps.h"
 
 Telnet telnet;
@@ -213,6 +214,7 @@ void Telnet::printHeapFragmentationInfo(uint8_t id){
 void Telnet::on_input(const char* str, uint8_t clientId) {
   if (strlen(str) == 0) return;
   if (NxLink::console(str, clientId)) return;
+  if (YoUpd::console(str, clientId)) return;
   if(network.status == CONNECTED){
     if (strcmp(str, "cli.prev") == 0 || strcmp(str, "prev") == 0) {
       player.prev();
