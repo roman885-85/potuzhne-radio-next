@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """nxupload.py <url> [бод] — сказати радіо (консоль UART) залити .tft в екран і дочекатися кінця."""
 import sys, time, serial
+import os, sys as _s; _s.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import port
 url = sys.argv[1]; baud = sys.argv[2] if len(sys.argv) > 2 else '921600'
-s = serial.Serial(); s.port, s.baudrate, s.timeout = '/dev/cu.usbserial-14610', 115200, 0.3
+s = serial.Serial(); s.port, s.baudrate, s.timeout = port.find(), 115200, 0.3
 s.dtr = False; s.rts = False; s.open(); s.reset_input_buffer()
 s.write(('nx upload %s %s\n' % (url, baud)).encode()); s.flush()
 buf = ''; t = time.time(); ok = False

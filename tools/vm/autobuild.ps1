@@ -47,6 +47,12 @@ while ((Get-Date) -lt $deadline) {
         Start-Sleep 2
         continue
     }
+    # LoadFrom завершився, щойно .HMI записано й перестав рости. Компілювати редактор сам
+    # не починає — тому далі чекати нема чого: виходимо, а .tft збере nxbuild.sh через агента.
+    if (Test-Path "$OutDir\$Name.HMI") {
+        $h1 = (Get-Item "$OutDir\$Name.HMI").Length; Start-Sleep 4; $h2 = (Get-Item "$OutDir\$Name.HMI").Length
+        if ($h1 -eq $h2 -and $h2 -gt 0) { break }
+    }
     if (Test-Path "$OutDir\$Name.tft") {
         $len1 = (Get-Item "$OutDir\$Name.tft").Length; Start-Sleep 3; $len2 = (Get-Item "$OutDir\$Name.tft").Length
         if ($len1 -eq $len2 -and $len2 -gt 0) { break }

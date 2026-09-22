@@ -77,9 +77,20 @@ void setupOTA(){
        2  loopDspTask    (годинник, веб)
        1  nxui           (екран Nextion)
     Вище 10 не піднімаємо: задушимо мережу.  */
+#include "extras/yoBt.h"
+
 void setup() {
   vTaskPrioritySet(nullptr, 4);
   Serial.begin(115200);
+  /*  Колонка Bluetooth — окремий режим: мережу й радіо не піднімаємо взагалі,
+      уся пам'ять іде звуку (рішення власника).  */
+  if (yobt::wanted()) {
+    config.init();
+    display.init();
+    player.init();
+    yobt::begin();
+    return;
+  }
   if(REAL_LEDBUILTIN!=255) pinMode(REAL_LEDBUILTIN, OUTPUT);
   if (yoradio_on_setup) yoradio_on_setup();
   pm.on_setup();
@@ -116,6 +127,14 @@ void setup() {
 }
 
 void loop() {
+  if (yobt::active()) {                 /* колонка: ні мережі, ні плеєра — лише екран і дотики */
+    telnet.loop();                      /* консоль лишаємо завжди: інакше з цього режиму не вийти */
+    #ifdef USE_NEXTION
+    nextion.loop();
+    #endif
+    delay(5);
+    return;
+  }
   timekeeper.loop1();
   telnet.loop();
   /*  Чергу плеєра треба розгрібати завжди: без мережі в неї однаково кладуть

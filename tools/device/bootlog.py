@@ -1,6 +1,9 @@
-import serial, time, sys
+import os
+import serial
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import port, time, sys
 S='/Users/admin/Documents/radio_potughne_next/build/device-work'
-s=serial.Serial(); s.port,s.baudrate,s.timeout='/dev/cu.usbserial-14610',115200,0.3
+s=serial.Serial(); s.port,s.baudrate,s.timeout=port.find(),115200,0.3
 s.dtr=False; s.rts=False; s.open()
 buf=b''; t=time.time(); seen=None
 while time.time()-t<900:

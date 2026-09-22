@@ -31,14 +31,45 @@ static uint32_t crcs(const char* s){
 }
 static uint32_t mixs(uint32_t h, const char* s){ if(s) for(; *s; s++) h = (h ^ (uint8_t)*s) * 16777619UL; return h; }
 
-/*  ---------- команди екрана ---------- */
+/*  ---------- команди екрана ----------
+    Лічильники по блоках: на рідній сторінці в покої по шині не має йти майже нічого,
+    і коли йде — треба знати, хто саме (консоль: «nx zones»).  */
+uint32_t nxZoneCnt[7] = { 0 };
+uint8_t  nxZone = 0;                   /* 0 інше, 1 шапка, 2 картка, 3 годинник, 4 рядок, 5 гучність, 6 спектр */
+
 static void nx(const char* fmt, ...){
   if(!nxSink) return;
+  nxZoneCnt[nxZone < 7 ? nxZone : 0]++;
   char b[240]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof(b), fmt, a); va_end(a);
   nxSink->cmd(b);
 }
+/*  Тінь того, що вже стоїть в екрані. На рідній сторінці головне правило — не слати те,
+    що вже там: кожна зайва команда це і байти по шині, і перемальовка, і чекання на
+    підтвердження. Ключ — «компонент.атрибут», значення — 64-бітний відбиток.  */
+struct Shadow {
+  static const uint8_t N = 64;
+  uint64_t key[N] = { 0 }, val[N] = { 0 };
+  static uint64_t fnv(const char* s, uint64_t h = 1469598103934665603ULL){
+    for(; s && *s; s++) h = (h ^ (uint8_t)*s) * 1099511628211ULL;
+    return h;
+  }
+  /*  true — значення нове, слати треба  */
+  bool changed(const char* what, uint64_t v){
+    const uint64_t k = fnv(what) | 1;
+    uint8_t i = (uint8_t)(k % N);
+    for(uint8_t n = 0; n < N; n++, i = (uint8_t)((i + 1) % N)){
+      if(key[i] == 0){ key[i] = k; val[i] = v; return true; }
+      if(key[i] == k){ if(val[i] == v) return false; val[i] = v; return true; }
+    }
+    return true;                        /* таблиця переповнилась — шлемо, хай буде */
+  }
+  void forget(){ for(uint8_t i = 0; i < N; i++) key[i] = 0; }
+} static shadow;
+
 /*  текст у компонент: лапки й зворотні скісні екрануємо  */
 static void nxTxt(const char* comp, const char* s){
+  char kk[40]; snprintf(kk, sizeof(kk), "%s.txt", comp);
+  if(!shadow.changed(kk, Shadow::fnv(s ? s : ""))) return;
   char b[260]; size_t n = 0;
   n += snprintf(b + n, sizeof(b) - n, "%s.txt=\"", comp);
   for(const char* p = s ? s : ""; *p && n < sizeof(b) - 8; p++){
@@ -48,7 +79,17 @@ static void nxTxt(const char* comp, const char* s){
   snprintf(b + n, sizeof(b) - n, "\"");
   if(nxSink) nxSink->cmd(b);
 }
-static void nxVis(const char* comp, bool on){ nx("vis %s,%d", comp, on ? 1 : 0); }
+static void nxVis(const char* comp, bool on){
+  char kk[40]; snprintf(kk, sizeof(kk), "%s.vis", comp);
+  if(!shadow.changed(kk, on ? 1 : 2)) return;
+  nx("vis %s,%d", comp, on ? 1 : 0);
+}
+/*  числовий атрибут через тінь: «nxSet("wf", "pic", 176)»  */
+static void nxSet(const char* comp, const char* att, long v){
+  char kk[48]; snprintf(kk, sizeof(kk), "%s.%s", comp, att);
+  if(!shadow.changed(kk, (uint64_t)(v + 1))) return;
+  nx("%s.%s=%ld", comp, att, v);
+}
 
 /*  ---------- стан ---------- */
 static bool sermonOn(){ return radio::sermonOn(); }
@@ -109,7 +150,7 @@ static void cardLines(char* line1, size_t c1, char* line2, size_t c2){
 static void scrollText(const char* comp, const char* s, const GFXfont* f, int16_t wdev){
   nxTxt(comp, s);
   int16_t w = (int16_t)(Gfx::textW(s, f) * 1.5f);
-  nx("%s.en=%d", comp, w > wdev ? 1 : 0);
+  nxSet(comp, "en", w > wdev ? 1 : 0);
 }
 
 void Player::show(){
@@ -117,6 +158,7 @@ void Player::show(){
   _all = true;
   _glow = 255; _mode = 255; _volShown = 0xFFFF; _lastSec = -1;
   _sTop = _sCard = _sClock = _sRow = _sVol = 0;
+  shadow.forget();                     /* сторінка наново — в екрані вже не те, що ми пам'ятали */
   nx("page pl");
   _sendAll();
 }
@@ -124,11 +166,11 @@ void Player::show(){
 void Player::_sendAll(){
   _top(true); _card(true); _clock(true); _row(true); _vol(true);
   nx("tm1.en=1");                       /* секунди рахує екран сам */
-  nx("tm2.en=1");                       /* смужки теж малює екран сам */
 }
 
 /*  ---------- шапка ---------- */
 void Player::_top(bool force){
+  struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(1);
   uint32_t s = mixs(2166136261UL, radio::stationName());
   s = s * 31 + (radio::remote() ? 2 : 0) + (radio::sdMode() ? 1 : 0) + (radio::speaker() ? 8 : 0) + (sermonOn() ? 16 : 0);
   s = s * 31 + extras.s.alarmOn * 2 + extras.sleepLeft() * 4;
@@ -142,15 +184,13 @@ void Player::_top(bool force){
   if(gi != _glow){
     _glow = gi;
     const uint16_t bg = NXPL_BG_PL_0 + gi;
-    nx("pl.pic=%u", bg);
-    nx("nm.picc=%u", bg); nx("ck.picc=%u", bg); nx("sc.picc=%u", bg);
-    nx("wd.picc=%u", bg); nx("dt.picc=%u", bg); nx("tp.picc=%u", bg);
-    nx("tpo.picc=%u", bg); nx("tdu.picc=%u", bg); nx("vp.picc=%u", bg);
+    nxSet("pl", "pic", bg);
+    for(const char* c : { "nm", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp" }) nxSet(c, "picc", bg);
     nx("ref 0");
   }
   uint8_t ic = radio::speaker() ? 3 : (radio::remote() || sermonOn()) ? 2 : radio::sdMode() ? 1 : 0;
-  nx("src.pic=%u", NXPL_SRC0 + gi * 4 + ic);
-  nx("wf.pic=%u", NXPL_WIFI0 + lv);
+  nxSet("src", "pic", NXPL_SRC0 + gi * 4 + ic);
+  nxSet("wf", "pic", NXPL_WIFI0 + lv);
   const char* name = radio::stationName();
   if(sermonOn()) name = "Проповідь";
   else if(radio::speaker()) name = "Бездротова колонка";
@@ -159,6 +199,7 @@ void Player::_top(bool force){
 
 /*  ---------- картка ---------- */
 void Player::_card(bool force){
+  struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(2);
   uint32_t c = mixs(2166136261UL, radio::stationTitle()) * 31 + (radio::playing() ? 1 : 0) + radio::bitrate() * 7;
   c = c * 31 + (sermonOn() ? 77 : 0) + mixs(0, radio::sermonTitle()) + mixs(0, radio::stationName());
   c = c * 31 + _status * 7919 + (uint32_t)(_statusN + 1) * 131;
@@ -172,13 +213,13 @@ void Player::_card(bool force){
     strlcpy(l1, tr(ST[_status < 4 ? _status : 0]), sizeof(l1));
     if(_status == 2 && _statusN >= 0) snprintf(l2, sizeof(l2), tr("знайдено %ld"), (long)_statusN);
     else l2[0] = 0;
-    nx("sq.pic=%u", NXPL_SQ_CARD);
+    nxSet("sq", "pic", NXPL_SQ_CARD);
     nxTxt("ini", "");
     nxVis("ini", false);
     scrollText("l1", l1, F_ROWB, 270);
     nxTxt("l2", l2);
     nxVis("pil", false); nxVis("br", false); nxVis("pb", false);
-    nx("vc.val=0");
+    nxSet("vc", "val", 0);
     return;
   }
   if(sermonOn()){
@@ -186,13 +227,11 @@ void Player::_card(bool force){
     snprintf(l2, sizeof(l2), "%s · %s", radio::sermonPreacher(), radio::sermonDate());
   }else cardLines(l1, sizeof(l1), l2, sizeof(l2));
   /*  квадрат ініціалів (логотипів екран на ходу не приймає — як у ПОТУЖНОГО без логотипа)  */
-  if(radio::sdMode()) nx("sq.pic=%u", NXPL_SQ_CARD);
-  else if(radio::speaker()) nx("sq.pic=%u", NXPL_SQ_SPK);
-  else nx("sq.pic=%u", NXPL_SQ0 + gi);
+  nxSet("sq", "pic", radio::sdMode() ? NXPL_SQ_CARD : radio::speaker() ? NXPL_SQ_SPK : NXPL_SQ0 + gi);
   char ini[8] = { 0 };
   if(!radio::sdMode() && !radio::speaker()) initials(sermonOn() ? "Проповідь" : radio::stationName(), ini, 2);
   nxTxt("ini", ini);
-  nx("ini.bco=%u", gi < 8 ? PAL[gi] : 0);
+  nxSet("ini", "bco", gi < 8 ? PAL[gi] : 0);
   nxVis("ini", ini[0] != 0);
   scrollText("l1", l1, F_ROWB, 270);
   nxTxt("l2", l2);
@@ -202,11 +241,15 @@ void Player::_card(bool force){
     nxTxt("br", b); nxVis("pil", true); nxVis("br", true);
   }else{ nxVis("pil", false); nxVis("br", false); }
   nxVis("pb", !playing);
-  nx("vc.val=%d", playing ? 1 : 0);      /* риски в картці малює екран у своєму таймері */
+  nxSet("vc", "val", playing ? 1 : 0);
+  /*  Таймер смужок крутити нема сенсу, коли нічого не грає: у нього 38 заливок на кадр,
+      і в покої він тільки віднімає час у годинника й дотиків.  */
+  nxSet("tm2", "en", playing ? 1 : 0);      /* риски в картці малює екран у своєму таймері */
 }
 
 /*  ---------- годинник, дата, погода ---------- */
 void Player::_clock(bool force){
+  struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(3);
   const struct tm& t = radio::now();
   uint32_t k = (uint32_t)t.tm_min * 61 + t.tm_hour * 3600 + t.tm_mday * 99991 +
                (radio::weatherHave() ? (int)lroundf(radio::weatherTemp()) * 7 + radio::weatherIcon() : 0) + (radio::timeOk() ? 1 : 0);
@@ -216,7 +259,7 @@ void Player::_clock(bool force){
   if(radio::timeOk()){
     snprintf(b, sizeof(b), "%02d:%02d", t.tm_hour, t.tm_min); nxTxt("ck", b);
     snprintf(b, sizeof(b), "%02d", t.tm_sec); nxTxt("sc", b);
-    nx("vs.val=%d", t.tm_sec);
+    nxSet("vs", "val", t.tm_sec);
     nxTxt("wd", tr(WDAY[t.tm_wday % 7]));
     snprintf(b, sizeof(b), "%d %s", t.tm_mday, tr(MON[t.tm_mon % 12])); nxTxt("dt", b);
   }else{
@@ -225,12 +268,13 @@ void Player::_clock(bool force){
   if(radio::weatherHave()){
     snprintf(b, sizeof(b), "%d°", (int)lroundf(radio::weatherTemp())); nxTxt("tp", b);
     uint8_t wi = radio::weatherIcon(); if(wi > 8) wi = 9;
-    nx("wi.pic=%u", NXPL_W0 + wi); nxVis("wi", wi <= 8);
+    nxSet("wi", "pic", NXPL_W0 + wi); nxVis("wi", wi <= 8);
   }else{ nxTxt("tp", ""); nxVis("wi", false); }
 }
 
 /*  ---------- третій рядок: спектр / обране / пульт ---------- */
 void Player::_row(bool force){
+  struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(4);
   const uint8_t m = _rowMode();
   uint32_t r = m * 1000003UL + (uint32_t)(extras.favPlaying() + 2) * 31;
   for(uint8_t i = 0; i < 6; i++) r = r * 31 + crcs(extras.fav[i].url);
@@ -240,10 +284,10 @@ void Player::_row(bool force){
   _sRow = r; _mode = m;
   if(modeChanged){
     char c[8];
-    nx("vm.val=%u", m);
+    nxSet("vm", "val", m);
     if(m != 0){                          /* рядок зайняли обране чи пульт — прибрати смужки */
       nx("fill %d,%d,%d,%d,%u", NXPL_SPX, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
-      for(uint8_t i = 0; i < 14; i++){ snprintf(c, sizeof(c), "d%u", i); nx("%s.val=4", c); _spec[i] = 4; }
+      for(uint8_t i = 0; i < 14; i++){ snprintf(c, sizeof(c), "d%u", i); nxSet(c, "val", 4); _spec[i] = 4; }
     }
     for(uint8_t i = 0; i < 6; i++){
       snprintf(c, sizeof(c), "f%u", i); nxVis(c, m == 1);
@@ -258,12 +302,12 @@ void Player::_row(bool force){
     for(uint8_t i = 0; i < 6; i++){
       const FavItem& f = extras.fav[i];
       snprintf(c, sizeof(c), "f%u", i);
-      if(!f.url[0]){ nx("%s.pic=%u", c, NXPL_FAV0); snprintf(c, sizeof(c), "fi%u", i); nxTxt(c, ""); continue; }
+      if(!f.url[0]){ nxSet(c, "pic", NXPL_FAV0); snprintf(c, sizeof(c), "fi%u", i); nxTxt(c, ""); continue; }
       const uint8_t ci = crcs(f.url) & 7;
-      nx("%s.pic=%u", c, NXPL_FAV0 + 1 + (pl == (int8_t)i ? 8 : 0) + ci);
+      nxSet(c, "pic", NXPL_FAV0 + 1 + (pl == (int8_t)i ? 8 : 0) + ci);
       initials(f.name, ini, 1);
       snprintf(c, sizeof(c), "fi%u", i);
-      nxTxt(c, ini); nx("%s.bco=%u", c, PAL[ci]);
+      nxTxt(c, ini); nxSet(c, "bco", PAL[ci]);
     }
   }else if(m == 2){
     const uint32_t dur = radio::durSec(), pos = radio::posSec();
@@ -271,17 +315,18 @@ void Player::_row(bool force){
     snprintf(b, sizeof(b), "%u:%02u", (unsigned)(pos / 60), (unsigned)(pos % 60)); nxTxt("tpo", b);
     if(dur){ snprintf(b, sizeof(b), "%u:%02u", (unsigned)(dur / 60), (unsigned)(dur % 60)); nxTxt("tdu", b); }
     else nxTxt("tdu", "--:--");
-    if(!_hold[1] || (int32_t)(millis() - _hold[1]) >= 0) nx("sk.val=%u", (unsigned)(dur ? (uint32_t)pos * 1000 / dur : 0));
+    if(!_hold[1] || (int32_t)(millis() - _hold[1]) >= 0) nxSet("sk", "val", (long)(dur ? (uint32_t)pos * 1000 / dur : 0));
   }
 }
 
 /*  ---------- гучність ---------- */
 void Player::_vol(bool force){
+  struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(5);
   const uint16_t v = _volDrag >= 0 ? (uint16_t)_volDrag : radio::volume();
   if(!force && v == _volShown) return;
   _volShown = v;
   if(_hold[0] && (int32_t)(millis() - _hold[0]) < 0) return;   /* повзунок веде палець */
-  nx("vol.val=%u", v);
+  nxSet("vol", "val", v);
   char b[8]; snprintf(b, sizeof(b), "%d%%", (int)((v * 100 + 127) / 254));
   nxTxt("vp", b);
 }
@@ -291,6 +336,7 @@ void Player::_vol(bool force){
     тримаємо в пам'яті ту саму модель падіння й шлемо d<k>, лише коли стало гучніше.
     Через це в тиші по шині не йде нічого.  */
 void Player::_spectrum(){
+  struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(6);
   const uint32_t now = millis();
   const uint32_t dt = _specT0 ? now - _specT0 : 0;
   _specT0 = now;
@@ -302,7 +348,7 @@ void Player::_spectrum(){
     uint8_t cur = _spec[i] > fall + 4 ? (uint8_t)(_spec[i] - fall) : 4;
     uint8_t v = (uint8_t)(sp[i] * 100); if(v > 100) v = 100; if(v < 4) v = 4;
     _spec[i] = cur;
-    if(v > cur){ _spec[i] = v; snprintf(c, sizeof(c), "d%u", i); nx("%s.val=%u", c, v); }
+    if(v > cur){ _spec[i] = v; snprintf(c, sizeof(c), "d%u", i); nxSet(c, "val", v); }
   }
 }
 

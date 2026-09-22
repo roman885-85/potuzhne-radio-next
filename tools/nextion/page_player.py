@@ -215,12 +215,17 @@ def build(p, meta, out_dir):
     pg.event('tm0', 'timer', 'printh 7E 4D\r\nprints tch0,2\r\nprints tch1,2')
     pg.add('variable', 'vs', sta=0, val=0)
     for k in range(NBAR): pg.add('variable', 'd%d' % k, sta=0, val=0)                   # висоти смужок 0..100
-    pg.add('timer', 'tm2', tim=40, en=0)
+    for k in range(NBAR): pg.add('variable', 'e%d' % k, sta=0, val=-1)                  # що вже намальовано
+    pg.add('timer', 'tm2', tim=50, en=0)   # 50 мс — мінімум для таймера Nextion, тобто стеля 20 кадрів/с
     pg.add('variable', 'vv', sta=0, val=0)
     pg.add('variable', 'vq', sta=0, val=0)
     pg.add('variable', 'vm', sta=0, val=0)   # 0 спектр, 1 обране, 2 пульт
     pg.add('variable', 'vc', sta=0, val=0)   # 1 — грає (риски в картці живі)
     pg.add('timer', 'tm1', tim=1000, en=0)
+    # зони дотику: усе вище рядка (0), третій рядок (1)
+    pg.add('hotspot', 'tz', x=0, y=0, w=480, h=Y(182) - 8)
+    pg.add('hotspot', 'tr', x=0, y=Y(182) - 8, w=480, h=Y(207) - Y(182) + 8)
+
     # компоненти відображення
     pg.add('picture', 'src', x=sx, y=sy, w=ss, h=ss, pic=ids['SRC0'])
     pg.add('scrolltext', 'nm', **tbox('title', 42, 25, X(250) - X(42)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'],
@@ -264,12 +269,9 @@ def build(p, meta, out_dir):
            wid=vh, hig=vh, minval=0, maxval=254, val=0)
     m = meta['smb']
     pg.add('text', 'vp', x=X(270), y=Y(230) - m['asc'], w=X(306) - X(270), h=m['h'], font=m['id'], pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=6)
-    # зони дотику: усе вище рядка (0), третій рядок (1)
-    pg.add('hotspot', 'tz', x=0, y=0, w=480, h=Y(182) - 8)
-    pg.add('hotspot', 'tr', x=0, y=Y(182) - 8, w=480, h=Y(207) - Y(182) + 8)
     for z, name in ((0, 'tz'), (1, 'tr')):
         pg.event(name, 'down', 'printh 7E 50\r\nprints tch0,2\r\nprints tch1,2\r\ntm0.en=1')
-        pg.event(name, 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch0,2\r\nprints tch1,2')
+        pg.event(name, 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch2,2\r\nprints tch3,2')
     # повзунки: гучність — відсоток показує сам екран, значення — в ESP32 (рух і відпускання)
     pg.event('vol', 'slide', 'vv.val=vol.val*100+127/254\r\ncovx vv.val,vp.txt,0,0\r\nvp.txt+="%"\r\nprinth 7E 56 01\r\nprints vol.val,2\r\nprinth 00')
     pg.event('vol', 'up', 'printh 7E 57 01\r\nprints vol.val,2\r\nprinth 00')
@@ -279,27 +281,35 @@ def build(p, meta, out_dir):
     # Спектр малює сам екран: ESP32 лише піднімає d0..d13, коли стало гучніше,
     # а падіння (по 3 за кадр) і перемальовування — тут. Так по шині майже нічого не їде.
     code = []
-    def bar(var, x, bottom, h, w, bg, fg):
+    def bar(var, shd, x, bottom, h, w, bg, fg):
+        #  Екран обробляє події строго по черзі: доки код таймера не доробив, дотик не
+        #  обробиться взагалі (EG: «a next-event will not be processed until the current
+        #  event has completed»). Тому малюємо лише те, що справді змінилось.
         code.append('if(%s.val>4)' % var); code.append('{'); code.append('%s.val=%s.val-3' % (var, var)); code.append('}')
-        # (падіння рахуємо тут же: коли смужки сховані, таймер вимкнено й ESP32 шле висоти наново)
+        code.append('if(%s.val!=%s.val)' % (shd, var)); code.append('{')
+        code.append('%s.val=%s.val' % (shd, var))
         code.append('vv.val=%s.val*%d' % (var, h)); code.append('vv.val=vv.val/100')
         code.append('vq.val=%d-vv.val' % h)
         code.append('fill %d,%d,%d,vq.val,%d' % (x, bottom - h, w, bg))
         code.append('vq.val=%d-vv.val' % bottom)
         code.append('fill %d,vq.val,%d,vv.val,%d' % (x, w, fg))
+        code.append('}')
     code.append('if(vm.val==0)'); code.append('{')                  # рядок спектра зайнятий іншим — не малюємо
     for k in range(NBAR):
-        bar('d%d' % k, int(round(SPX0 + k * SPSTEP)), SPB, SPH, SPW, c565(C['BG']), c565(C['ACC']))
+        bar('d%d' % k, 'e%d' % k, int(round(SPX0 + k * SPSTEP)), SPB, SPH, SPW, c565(C['BG']), c565(C['ACC']))
     code.append('}')
     code.append('if(vc.val==1)'); code.append('{')
     for k, src in enumerate((2, 5, 8, 11, 13)):                     # риски в картці — з тих самих смужок
         bar_x = int(round(CBX + k * 5 * K))
+        code.append('if(e%d.val!=d%d.val)' % (src, src)); code.append('{')
         code.append('vv.val=d%d.val*%d' % (src, CBH)); code.append('vv.val=vv.val/100')
         code.append('vq.val=%d-vv.val' % CBH)
         code.append('fill %d,%d,%d,vq.val,%d' % (bar_x, CBY - CBH, CBW, c565(C['SURF'])))
         code.append('vq.val=%d-vv.val' % CBY)
         code.append('fill %d,vq.val,%d,vv.val,%d' % (bar_x, CBW, c565(C['ACC'])))
+        code.append('}')
     code.append('}')
+    code.append('doevents')             # дати екрану доробити перемальовку до наступного тику
     pg.event('tm2', 'timer', '\r\n'.join(code))
 
     # секунди: екран рахує сам, ESP32 раз на хвилину звіряє

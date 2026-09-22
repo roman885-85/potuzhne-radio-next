@@ -1938,6 +1938,28 @@ void Audio::loadUserCode(void) {
 
 /*  14 смуг просто під час декодування. Адреса в X-RAM інкрементиться сама після кожного
     читання SCI_WRAM, тому wram_read() тут не годиться — він щоразу переписує адресу.  */
+/*  ---- колонка Bluetooth: сирі відліки просто в чип ---- */
+void Audio::pcmBegin(){
+  /*  Заголовок WAV: VS1053 бере його як опис потоку й далі чекає самі відліки.  */
+  static const uint8_t wav[44] = {
+    'R','I','F','F', 0xFF,0xFF,0xFF,0x7F, 'W','A','V','E', 'f','m','t',' ',
+    16,0,0,0, 1,0, 2,0, 0x44,0xAC,0,0, 0x10,0xB1,2,0, 4,0, 16,0,
+    'd','a','t','a', 0xFF,0xFF,0xFF,0x7F
+  };
+  startSong();
+  pcmFeed(wav, sizeof(wav));
+}
+
+void Audio::pcmFeed(const uint8_t* data, size_t len){
+  /*  DREQ каже, чи готовий чип прийняти ще 32 байти — більше за раз не можна.  */
+  while(len){
+    while(!digitalRead(dreq_pin)) vTaskDelay(1);
+    size_t n = len > 32 ? 32 : len;
+    sdi_send_buffer((uint8_t*)data, n);
+    data += n; len -= n;
+  }
+}
+
 uint8_t Audio::readSpectrum(uint8_t* cur, uint8_t* peak) {
   if(!_saInitalized) return 0;
   write_register(SCI_WRAMADDR, VS1053B_SA_BASE + 2);

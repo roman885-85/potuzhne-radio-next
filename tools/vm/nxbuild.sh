@@ -18,7 +18,26 @@ WIN='\\Mac\Home\Documents\radio_potughne_next'
 if [ "${NX_NOBUILD:-0}" = "1" ]; then OUT="TFT: вже зібрано"; else
 OUT="$(printf '%s\n' "\$Folder = '$WIN\\build\\nx\\$N'" "\$Name = '$N'" "\$Timeout = ${NX_TIMEOUT:-1500}" ". '$WIN\\tools\\vm\\autobuild.ps1'" | "$EX" 2>&1 | tail -1)"
 fi
-echo "$OUT" | grep -q "^TFT: " || { echo "збірка: $OUT"; exit 1; }
+# LoadFrom лише завантажує й зберігає .HMI; компіляцію редактор робить не завжди — доганяємо самі
+if ! echo "$OUT" | grep -q "^TFT: "; then
+  echo "проєкт завантажено; компілюю (редактор сам цього не робить)"
+  printf '%s\n' ". '$WIN\\tools\\vm\\ui.ps1'" "Start-NE; Start-Sleep 5; Dismiss-NeMessages | Out-Null" \
+    "Open-NEProject 'C:\\Tools\\work\\out\\$N.HMI' | Out-Null" "Start-Sleep 20; Dismiss-NeMessages | Out-Null" | "$EX" >/dev/null
+  # Проєкт на 17 МБ редактор відкриває не миттєво. Компілювати можна лише коли всі картинки
+  # й шрифти вже в ньому — інакше збереться порожній .tft (перевірено: 394 КБ замість 8 МБ).
+  WANT_PICS="$(ls "$ROOT/build/nx/$N/img" | wc -l | tr -d ' ')"
+  for i in $(seq 1 40); do
+    RC="$(NB_WAIT=60 "$NB" rescount 2>/dev/null | tail -1 | tr -d '\r')"
+    echo "  відкривається: $RC (треба pictures=$WANT_PICS)"
+    echo "$RC" | grep -q "pictures=$WANT_PICS" && break
+    sleep 15
+  done
+  echo "$RC" | grep -q "pictures=$WANT_PICS" || { echo "проєкт не відкрився повністю: $RC"; exit 1; }
+  MSG="$(NB_WAIT=2400 "$NB" "tft C:\\Tools\\work\\out\\$N.tft" 2>&1)"
+  echo "$MSG" | sed -n '2,$p'
+  echo "$MSG" | grep -q "Compile Successful" || { echo "компіляція не вдалася"; exit 1; }
+  OUT="TFT: скомпільовано вручну"
+fi
 if [ "${NX_NOBUILD:-0}" != "1" ]; then
 mkdir -p "$ROOT/build/nextion-out"
 printf '%s\n' ". '$WIN\\tools\\vm\\ui.ps1'" \

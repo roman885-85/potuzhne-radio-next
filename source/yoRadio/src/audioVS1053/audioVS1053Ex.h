@@ -345,6 +345,12 @@ public:
     void     computeVUlevel();
     /* SPECTRUM ANALYZER (плагін VLSI: 14 смуг просто під час декодування) */
     uint8_t  readSpectrum(uint8_t* cur, uint8_t* peak = nullptr);   // скільки смуг прочитано
+    /*  Режим колонки Bluetooth: віддаємо в чип готові відліки (WAV-заголовок, далі PCM).
+        Тут немає ні потоку, ні декодера — лише шина SDI з оглядкою на DREQ.  */
+    void     pcmBegin();                                            // скидання + заголовок WAV 44100/16/стерео
+    void     pcmFeed(const uint8_t* data, size_t len);
+    uint16_t chipId()       { return wram_read(0x1E00); }           // для перевірки з консолі
+    uint8_t  patchVersion() { return wram_read(0x1E02) & 0xFF; }    // 0 — патч не встав
     bool     eofHeader;
     // implement several function with respect to the index of string
     bool startsWith (const char* base, const char* str) { return (strstr(base, str) - base) == 0;}

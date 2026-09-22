@@ -14,7 +14,9 @@ URL="https://github.com/roman885-85/potuzhne-radio-next/releases/download/dev-sc
 "$ROOT/build/venv/bin/python" - "$URL" <<'PY'
 import serial, sys, time, re
 url = sys.argv[1]
-s = serial.Serial('/dev/cu.usbserial-14610', 115200, timeout=0.2); s.dtr = False; s.rts = False
+import glob
+port = sorted(glob.glob('/dev/cu.usbserial-*'))[0]
+s = serial.Serial(port, 115200, timeout=0.2); s.dtr = False; s.rts = False
 s.reset_input_buffer()
 for c in ('upd fw ' + url, 'upd go'):
     s.write((c + '\n').encode()); s.flush(); time.sleep(0.6)

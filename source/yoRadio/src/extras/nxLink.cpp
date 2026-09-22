@@ -7,6 +7,8 @@
 #include "../displays/nextion.h"
 #include "../core/telnet.h"
 #include "../core/player.h"
+#include "yoBt.h"
+namespace m2 { extern uint32_t nxZoneCnt[7]; }   /* лічильники команд по блоках (m2player.cpp) */
 
 extern HardwareSerial hSerial;
 
@@ -268,9 +270,41 @@ namespace NxLink {
       telnet.printf(cid, "##NX#\tдотик %d,%d\n> ", x, y);
       return true;
     }
+    if (!strcmp(a, "spec")) {
+      /*  Перевірка плагінів VS1053 за списком docs/analysis/vs1053-spectrum-howto.md:
+          чип відповідає, патч встав, аналізатор віддає 14 смуг і вони ворушаться.  */
+      uint8_t cur[16] = { 0 }, pk[16] = { 0 };
+      const uint8_t n = player.readSpectrum(cur, pk);
+      char b[240]; int k = snprintf(b, sizeof b, "чип %04X патч %u смуг %u:",
+                                    (unsigned)player.chipId(), (unsigned)player.patchVersion(), (unsigned)n);
+      for (uint8_t i = 0; i < n && k < (int)sizeof(b) - 5; i++) k += snprintf(b + k, sizeof(b) - k, " %u", (unsigned)cur[i]);
+      telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
+    if (!strncmp(a, "bt ", 3)) {
+      /*  «nx bt on|off» — перемкнути режим колонки з консолі (з самого режиму інакше не вийти)  */
+      const bool on = !strcmp(a + 3, "on");
+      telnet.printf(cid, "##NX#\t%s, перезапуск\n> ", on ? "колонка Bluetooth" : "радіо");
+      delay(200);
+      yobt::setWanted(on);
+      return true;
+    }
+    if (!strcmp(a, "zones")) {
+      static const char* const NM[7] = { "інше", "шапка", "картка", "годинник", "рядок", "гучність", "спектр" };
+      char b[200]; int k = 0;
+      for (uint8_t i = 0; i < 7; i++) k += snprintf(b + k, sizeof(b) - k, "%s %lu  ", NM[i], (unsigned long)m2::nxZoneCnt[i]);
+      telnet.printf(cid, "##NX#\t%s\n> ", b);
+      for (uint8_t i = 0; i < 7; i++) m2::nxZoneCnt[i] = 0;
+      return true;
+    }
     if (!strcmp(a, "perf")) {
       char b[200]; nextion.perf(b, sizeof b);
       telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
+    if (!strcmp(a, "dump")) {
+      nextion.dump();
+      telnet.printf(cid, "##NX#\tзначення сторінки в консолі\n> ");
       return true;
     }
     if (!strcmp(a, "shot")) {

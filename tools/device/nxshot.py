@@ -6,11 +6,13 @@
 вшиті в екран (tools/nextion/nxrender.py). Виходить точна копія намальованого — без фото.
 """
 import os, sys, time, serial
+import os, sys as _s; _s.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import port
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'nextion'))
 import nxrender
 out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'build', 'nx', 'shots', 'radio.png')
-s = serial.Serial('/dev/cu.usbserial-14610', 115200, timeout=0.2); s.dtr = False; s.rts = False
+s = serial.Serial(port.find(), 115200, timeout=0.2); s.dtr = False; s.rts = False
 s.reset_input_buffer(); s.write(b'nx shot\n'); s.flush()
 buf = b''; t0 = time.time(); cmds = []; began = None; ended = None
 while time.time() - t0 < 20:

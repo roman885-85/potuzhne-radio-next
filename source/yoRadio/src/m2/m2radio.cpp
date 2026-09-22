@@ -10,6 +10,7 @@
 #include "../core/network.h"
 #include "../core/timekeeper.h"
 #include "../extras/yoExtras.h"
+#include "../extras/yoBt.h"
 #include "../extras/yoBuild.h"
 
 /*  погода — з timekeeper через драйвер екрана (nextion.weather)  */
@@ -85,8 +86,8 @@ bool        sdMode(){ return config.getMode() == PM_SDCARD; }
 bool        sdAllowed(){ return SDC_CS != 255 && !extras.s.noSd; }
 void        changeMode(){ config.changeMode(); }
 bool        remote(){ return player.remoteStationName; }
-bool        speaker(){ return false; }
-const char* speakerName(){ return ""; }
+bool        speaker(){ return yobt::active(); }
+const char* speakerName(){ return yobt::peer(); }
 
 /*  ---- проповіді (доповнення ще переноситься) ---- */
 bool        sermonOn(){ return false; }
@@ -113,8 +114,8 @@ void     seek(uint32_t sec){
 }
 
 /*  ---- Bluetooth-колонка (режим ще переноситься) ---- */
-bool btMode(){ return false; }
-void setBtMode(bool){}
+bool btMode(){ return yobt::active() || yobt::wanted(); }
+void setBtMode(bool on){ yobt::setWanted(on); }   /* запис прапорця й перезавантаження */
 
 /*  ---- налаштування ядра ---- */
 uint8_t brightness(){ return config.store.brightness < 5 ? 5 : config.store.brightness; }
@@ -181,13 +182,24 @@ int         rssi(){ return WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127; }
 /*  Смуги дає сам VS1053 (плагін VLSI): 0..31 кроком 3 дБ. Беремо вікно у 30 дБ під
     найгучнішою смугою — інакше тиха станція малює порожній рядок, а гучна — суцільну стіну.
     Опитуємо не частіше ніж раз на 50 мс: частіше чип і не рахує.  */
-void bands(float* out, uint8_t n){
-  static uint8_t cur[VS1053B_SA_MAX_BANDS];
+static uint8_t saCur[VS1053B_SA_MAX_BANDS];
+static volatile uint8_t saGot = 0;
+
+/*  Опитувати VS1053 можна лише з головного циклу: у нього з карткою пам'яті спільна шина
+    SPI, і звертання з задачі екрана (інше ядро) рвало б і звук, і читання картки.
+    Задача екрана бере вже прочитане.  */
+void spectrumPoll(){
   static uint32_t last = 0;
-  static uint8_t got = 0;
-  static float ref = 10;                       /* плавуча стеля, у кроках по 3 дБ */
   const uint32_t now = millis();
-  if(now - last >= 50){ last = now; got = player.readSpectrum(cur); }
+  if(now - last < 50) return;
+  last = now;
+  saGot = player.readSpectrum(saCur);
+}
+
+void bands(float* out, uint8_t n){
+  static float ref = 10;                       /* плавуча стеля, у кроках по 3 дБ */
+  const uint8_t* cur = saCur;
+  const uint8_t got = saGot;
   if(!got){ for(uint8_t i = 0; i < n; i++) out[i] = 0; return; }
   uint8_t mx = 0;
   for(uint8_t i = 0; i < got; i++) if(cur[i] > mx) mx = cur[i];

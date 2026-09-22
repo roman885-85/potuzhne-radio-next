@@ -13,7 +13,7 @@
 import math, os, sys
 from PIL import Image
 sys.path.insert(0, os.path.dirname(__file__))
-import gfx, nxassets, page_player
+import gfx, nxassets, page_player, page_boot
 from hmi import Project, rgb565
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -76,10 +76,17 @@ def main():
         i = p.image(fp)
         if ring0 is None: ring0 = i
 
-    p.program = "baud=921600\r\ndim=100\r\nbkcmd=0\r\nrecmod=0\r\npage 0\r\n"
+    #  «Nextion Ready» (0x88) з версії редактора 1.65 живе не в прошивці екрана, а тут:
+    #  без цього рядка прошивка радіо ніколи не дізнається, що екран перезавантажився.
+    #  bkcmd=2 — типове значення: у нормі по шині тиша, а помилка команди приходить.
+    p.program = ("baud=921600\r\ndim=100\r\nbkcmd=2\r\nrecmod=0\r\n"
+                 "printh 00 00 00 FF FF FF 88 FF FF FF\r\npage 0\r\n")
 
     # ---- boot: поки чорна (анімація заставки — окремо)
-    if 'boot' not in os.environ.get('NX_SKIP', ''): boot = p.page('boot'); boot.set('boot', sta=1, bco=0)
+    if 'boot' not in os.environ.get('NX_SKIP', ''):
+        page_boot.build(p, os.path.join(OUT, 'boot'))
+    else:
+        boot = p.page('boot'); boot.set('boot', sta=1, bco=0)
 
     # ---- ui: малює прошивка; дотики — у ESP32
     ui = p.page('ui'); ui.set('ui', sta=1, bco=0)

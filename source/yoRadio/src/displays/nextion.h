@@ -42,6 +42,8 @@ class Nextion {
     void  weather(float temp, int press, int hum, uint8_t icon);
     /*  знімок екрана в консоль (nx shot)  */
     void  shot();
+    /*  що зараз на рідній сторінці «pl»: питаємо в екрана значення компонентів (nx dump)  */
+    void  dump();
     void  touch(int16_t x, int16_t y);   /* nx touch x y — перевірка без пальця */
     /*  заміри з минулого разу (nx perf)  */
     void  perf(char* out, size_t cap);

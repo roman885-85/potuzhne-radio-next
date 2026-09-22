@@ -20,14 +20,13 @@ namespace nxq { extern volatile uint8_t open; }
 namespace {
   /*  ---------- зв'язок ----------
       Усе з UART екрана робить лише задача екрана: команди з інших задач (яскравість із ядра,
-      сон) кладуться в чергу. Підтвердження (bkcmd=3) тримають ритм: у дорозі не більше WINDOW
-      команд. Екран перезавантажився (сам шле 0x88) чи мовчить — підтвердження вмикаються знову,
-      а поки їх нема, команди йдуть із паузою за довжиною (не більше, ніж екран устигає прийняти).  */
-  const uint8_t WINDOW = 6;           /* команд у дорозі без підтвердження */
-  volatile uint8_t inflight = 0;
+      сон) кладуться в чергу. Підтверджень на кожну команду не просимо (bkcmd=2: у нормі тиша,
+      приходить лише помилка) — на рідних сторінках команд мало, а чекання на підтвердження
+      коштувало простою задачі екрана.
+      Екран перезавантажився — він сам шле 0x88, і ми вмикаємо потрібні режими наново.  */
+  uint8_t  burst = 0;                 /* скільки команд поспіль без паузи */
   uint32_t errors = 0; uint8_t lastErr = 0;
-  uint8_t  misses = 0;                /* скільки разів поспіль підтвердження не прийшло */
-  bool     needBk = true;             /* треба (знову) ввімкнути bkcmd=3 */
+  bool     needBk = true;             /* треба (знову) задати bkcmd=2 */
   QueueHandle_t extq = nullptr;       /* команди з інших задач */
   struct ExtCmd { char s[64]; };
   /*  Розбір того, що шле екран: відповіді (…FF FF FF) і власні кадри сторінки «pl» —
@@ -37,12 +36,14 @@ namespace {
                      'V' — ведуть, 'W' — відпустили;
         'B'          кнопка: номер (1 ⏮, 2 ⏭).  */
   enum : uint8_t { RX_IDLE, RX_TOUCH, RX_REPLY };
-  uint8_t rst = RX_IDLE, rbuf[8], rlen = 0, ffs = 0;
+  uint8_t rst = RX_IDLE, rbuf[72], rlen = 0, ffs = 0;
+  volatile bool dumping = false;      /* nx dump: відповіді «get» друкуємо в консоль */
   struct Touch { uint8_t kind; int16_t x, y; };
   Touch tq[16]; volatile uint8_t tqh = 0, tqt = 0;
   volatile bool mirror = false;       /* nx shot: копія команд у консоль */
   uint32_t pfCmds = 0, pfBytes = 0, pfBusyUs = 0, pfMaxUs = 0, pfT0 = 0;   /* nx perf */
   volatile bool shotReq = false;
+  volatile bool reinit = false;       /* екран стартував заново — показати сторінку з нуля */
   int16_t fadeLevel = -1;             /* затемнення меню (0..255), -1 — ні */
   int16_t lastDim = -1;
   uint32_t splashUntil = 0;           /* показ заставки на прохання (кнопка в меню) */
@@ -70,10 +71,15 @@ namespace {
       case RX_REPLY:
         if(c == 0xFF){
           if(++ffs == 3){
-            if(rbuf[0] == 0x88 || (rbuf[0] == 0x00 && rlen >= 3)){ needBk = true; inflight = 0; }   /* екран щойно стартував */
+            if(dumping && (rbuf[0] == 0x70 || rbuf[0] == 0x71)){
+              /*  0x70 — рядок, 0x71 — число (4 байти, молодшим уперед)  */
+              if(rbuf[0] == 0x70){ rbuf[rlen] = 0; Serial.printf("##NXD#\t%s\n", (char*)rbuf + 1); }
+              else if(rlen >= 5) Serial.printf("##NXD#\t%ld\n", (long)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8) | ((uint32_t)rbuf[3] << 16) | ((uint32_t)rbuf[4] << 24)));
+              rst = RX_IDLE; rlen = 0; ffs = 0;
+              break;
+            }
+            if(rbuf[0] == 0x88){ needBk = true; reinit = true; }   /* екран щойно стартував (Program.s шле 0x88) */
             else {
-              if(inflight) inflight--;
-              misses = 0;
               if(rbuf[0] != 0x01){ errors++; lastErr = rbuf[0]; }
             }
             rst = RX_IDLE;
@@ -90,29 +96,18 @@ namespace {
   struct SerialSink : m2::NxSink {
     void cmd(const char* s) override {
       if(nextion.paused) return;
-      if(needBk){ needBk = false; rawSend("bkcmd=3"); inflight++; }
-      uint32_t t = millis();
-      while(inflight >= WINDOW){
-        pump();
-        if(inflight < WINDOW) break;
-        if(millis() - t > 60){
-          /*  підтверджень нема: скинути лічильник, а після трьох разів поспіль — знову попросити  */
-          inflight = 0; errors++; lastErr = 0xEE;
-          if(++misses >= 3){ misses = 0; needBk = true; }
-          break;
-        }
-        vTaskDelay(1);
-      }
+      /*  Підтвердження на кожну команду (bkcmd=3) були потрібні, доки прошивка малювала
+          сторінку сама тисячами команд. Рідна сторінка їх шле десятками — а чекання на
+          підтвердження коштувало до 60 мс простою задачі екрана на кожну команду, і саме
+          через це стояли годинник і дотики. Тепер підтверджень не просимо, а сплеск
+          (перший показ сторінки) розводимо паузами, щоб не переповнити буфер екрана.  */
+      if(needBk){ needBk = false; rawSend("bkcmd=2"); }
+      if(++burst >= 8){ burst = 0; pump(); vTaskDelay(1); }
       rawSend(s);
-      inflight++;
       pfCmds++; pfBytes += strlen(s) + 3;
       if(mirror){ Serial.print("##NXC#\t"); Serial.println(s); }
     }
-    void sync() override {
-      uint32_t t = millis();
-      while(inflight && millis() - t < 200){ pump(); vTaskDelay(1); }
-      inflight = 0;
-    }
+    void sync() override { pump(); vTaskDelay(1); }
   } sink;
 
   /*  з інших задач — у чергу  */
@@ -179,6 +174,13 @@ namespace {
       while(tqt != tqh){ Touch t = tq[tqt]; tqt = (tqt + 1) % 16; if(nextion.started()) handleTouch(t); }
       if(nextion.started()){
         if(splashUntil && (int32_t)(millis() - splashUntil) >= 0){ splashUntil = 0; m2::P.show(); }
+        if(reinit){
+          /*  Екран перезавантажився сам (живлення, «rest», заливка .tft). Усе, що ми в нього
+              поклали, зникло — тому сторінку віддаємо з нуля, а не по змінах.  */
+          reinit = false;
+          lastDim = -1;
+          if(m2::M.active()) m2::M.invalAll(); else m2::P.show();
+        }
         if(!splashUntil){
           if(shotReq){
             shotReq = false;
@@ -197,7 +199,7 @@ namespace {
     }
   }
 
-  bool handshake(){
+  bool handshakeOnce(){
     const uint32_t bauds[] = { NEXTION_BAUD, 115200, 9600 };
     for(uint32_t b : bauds){
       hSerial.updateBaudRate(b); delay(20);
@@ -225,6 +227,21 @@ namespace {
       }
     }
     hSerial.updateBaudRate(NEXTION_BAUD);
+    return false;
+  }
+
+  /*  При вмиканні живлення ESP32 прокидається швидше за екран: якщо спитати один раз і
+      здатися, зв'язку не буде до наступного перезавантаження — саме звідси «працює через раз».
+      Тому питаємо, доки не відповість, із паузою за документацією ((1000000/бод)+30 мс).  */
+  bool handshake(){
+    const uint32_t t0 = millis();
+    for(uint8_t n = 0; millis() - t0 < 9000; n++){
+      if(handshakeOnce()){
+        if(n) Serial.printf("##[BOOT]#\tNextion відповів з %u спроби\n", (unsigned)(n + 1));
+        return true;
+      }
+      delay(1000000UL / NEXTION_BAUD + 30);
+    }
     Serial.println("##[BOOT]#\tNextion не відповідає");
     return false;
   }
@@ -241,7 +258,7 @@ void Nextion::begin(bool dummy){
   mode = LOST;
   hSerial.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
   handshake();
-  rawSend("bkcmd=3");                                   /* кожна команда відповідає: так тримаємо ритм */
+  rawSend("bkcmd=2");                                   /* у нормі тиша, помилка команди приходить */
   delay(20);
   while(hSerial.available()) hSerial.read();
   needBk = false;
@@ -281,6 +298,7 @@ void Nextion::loop(){
     else if(t.kind == 'M') m2::P.onDrag(t.x, t.y);
     else m2::P.onRelease(t.x, t.y);
   }
+  m2::radio::spectrumPoll();           /* смуги читаємо тут, не в задачі екрана */
   extras.loop();
   uint8_t o = nxq::open;
   if(o){
@@ -329,6 +347,23 @@ void Nextion::weather(float temp, int press, int hum, uint8_t icon){
 }
 
 void Nextion::shot(){ shotReq = true; }
+
+/*  «nx dump» — що зараз на сторінці плеєра. Сторінка тепер рідна: команд, які її малюють,
+    більше немає, тому питаємо самі значення в екрана («get») і друкуємо відповіді.  */
+void Nextion::dump(){
+  static const char* const TXT[] = { "nm", "l1", "l2", "br", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp", "ini" };
+  static const char* const VAL[] = { "vol", "sk", "vm", "vc", "vs" };
+  static const char* const PIC[] = { "src", "wf", "sq", "wi" };
+  Serial.println("##NXD#\tBEGIN");
+  dumping = true;
+  char c[40];
+  for(auto n : TXT){ Serial.printf("##NXD#\t%s.txt =\n", n); snprintf(c, sizeof(c), "get %s.txt", n); extSend(c); delay(60); }
+  for(auto n : VAL){ Serial.printf("##NXD#\t%s.val =\n", n); snprintf(c, sizeof(c), "get %s.val", n); extSend(c); delay(60); }
+  for(auto n : PIC){ Serial.printf("##NXD#\t%s.pic =\n", n); snprintf(c, sizeof(c), "get %s.pic", n); extSend(c); delay(60); }
+  delay(200);
+  dumping = false;
+  Serial.println("##NXD#\tEND");
+}
 
 /*  для перевірки з консолі: дотик у точку екрана Nextion (натиснув і відпустив)  */
 void Nextion::touch(int16_t x, int16_t y){
