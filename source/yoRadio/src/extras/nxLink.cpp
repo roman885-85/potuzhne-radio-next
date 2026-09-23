@@ -8,7 +8,8 @@
 #include "../core/telnet.h"
 #include "../core/player.h"
 #include "yoBt.h"
-namespace m2 { extern uint32_t nxZoneCnt[7]; }   /* лічильники команд по блоках (m2player.cpp) */
+namespace m2 { extern uint32_t nxZoneCnt[7]; }
+void nxSplashDemo(uint32_t ms);                  /* displays/nextion.cpp: показати заставку */   /* лічильники команд по блоках (m2player.cpp) */
 
 extern HardwareSerial hSerial;
 
@@ -364,6 +365,14 @@ namespace NxLink {
       for (uint8_t i = 0; i < 7; i++) k += snprintf(b + k, sizeof(b) - k, "%s %lu  ", NM[i], (unsigned long)m2::nxZoneCnt[i]);
       telnet.printf(cid, "##NX#\t%s\n> ", b);
       for (uint8_t i = 0; i < 7; i++) m2::nxZoneCnt[i] = 0;
+      return true;
+    }
+    if (!strncmp(a, "splash", 6)) {
+      /*  Показати заставку на вимогу: кадри крутить прошивка, і перевірити це інакше
+          можна тільки перезавантаженням радіо.  */
+      int ms = 5000; sscanf(a + 6, "%d", &ms);
+      nxSplashDemo((uint32_t)(ms > 0 && ms < 60000 ? ms : 5000));
+      telnet.printf(cid, "##NX#\tзаставка на %d мс\n> ", ms);
       return true;
     }
     if (!strcmp(a, "touches")) {

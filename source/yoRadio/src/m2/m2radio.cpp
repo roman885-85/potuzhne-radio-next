@@ -191,7 +191,7 @@ static volatile uint8_t saGot = 0;
 void spectrumPoll(){
   static uint32_t last = 0;
   const uint32_t now = millis();
-  if(now - last < 50) return;
+  if(now - last < 25) return;                  /* 40 разів за секунду: малюємо 25, читати треба частіше */
   last = now;
   saGot = player.readSpectrum(saCur);
 }
