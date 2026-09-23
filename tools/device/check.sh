@@ -11,16 +11,17 @@ RC="$PY tools/device/rc.py"
 bad=0
 
 echo "=== 1. самоперевірка радіо ==="
-OUT="$($RC 'nx test' 2>&1 | grep '##NXT#' | sed 's/.*##NXT#[[:space:]]*//')"
+OUT="$($RC 'nx test' 2>&1 | tr -d '\000' | grep -a '##NXT#' | sed 's/.*##NXT#[[:space:]]*//')"
 [ -n "$OUT" ] || { echo "радіо не відповідає по мережі"; exit 2; }
 echo "$OUT"
 echo "$OUT" | grep -q "ЗЛАМАНО" && bad=1
 
 echo
 echo "=== 2. секунди йдуть? ==="
-A="$($RC 'nx dump' 2>&1 | grep -A1 'sc\.txt =' | tail -1 | sed 's/.*##NXD#[[:space:]]*//')"
+sec(){ $RC 'nx dump' 2>&1 | tr -d '\000' | grep -a 'sc\.txt' | sed 's/.*= *//' | tr -d ' \r'; }
+A="$(sec)"
 sleep 4
-B="$($RC 'nx dump' 2>&1 | grep -A1 'sc\.txt =' | tail -1 | sed 's/.*##NXD#[[:space:]]*//')"
+B="$(sec)"
 if [ -n "$A" ] && [ "$A" != "$B" ]; then echo "ГАРАЗД: $A → $B"; else echo "ЗЛАМАНО: $A → $B (стоять)"; bad=1; fi
 
 echo
@@ -28,7 +29,7 @@ echo "=== 3. спектр ворушиться? ==="
 #  Плагін VS1053 дає смуги лише під час декодування: у тиші всі нулі, і це не поломка.
 $RC 'play' >/dev/null 2>&1
 sleep 6
-V="$($RC 'nx spec' 'nx spec' 'nx spec' 2>&1 | grep 'смуг' | sed 's/.*смуг [0-9]*: *//')"
+V="$($RC 'nx spec' 'nx spec' 'nx spec' 2>&1 | tr -d '\000' | grep -a 'смуг' | sed 's/.*смуг [0-9]*: *//')"
 echo "$V" | sed 's/^/  /'
 if [ "$(echo "$V" | sort -u | wc -l)" -gt 1 ]; then echo "ГАРАЗД: значення різні"
 else echo "УВАГА: значення однакові (тиша чи не читається)"; fi

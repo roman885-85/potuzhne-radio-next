@@ -373,7 +373,7 @@ namespace NxLink {
       return true;
     }
     if (!strcmp(a, "perf")) {
-      char b[200]; nextion.perf(b, sizeof b);
+      char b[260]; nextion.perf(b, sizeof b);
       telnet.printf(cid, "##NX#\t%s\n> ", b);
       return true;
     }

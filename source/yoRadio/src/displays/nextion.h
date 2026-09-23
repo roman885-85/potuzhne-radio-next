@@ -44,6 +44,7 @@ class Nextion {
     void  shot();
     /*  що зараз на рідній сторінці «pl»: питаємо в екрана значення компонентів (nx dump)  */
     void  dump();
+    bool  askStr(const char* what, char* out, size_t cap);   /* рядок з екрана */
     void  raw(uint16_t sec);            /* писати в консоль сирі байти від екрана */
     /*  Самоперевірка: проганяє систему по всіх вузлах і каже, де саме зламано (nx test)  */
     void  selftest();

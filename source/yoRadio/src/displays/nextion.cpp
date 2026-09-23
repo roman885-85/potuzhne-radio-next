@@ -29,6 +29,7 @@ namespace {
   uint16_t burstBytes = 0;            /* байтів від останньої синхронізації з екраном */
   volatile bool syncWait = false, syncGot = false;
   uint32_t errors = 0; uint8_t lastErr = 0;
+  uint32_t syncs = 0, syncLate = 0, syncUs = 0;   /* скільки разів чекали екран і скільки не дочекались */
   bool     needBk = true;             /* треба (знову) задати bkcmd=2 */
   QueueHandle_t extq = nullptr;       /* команди з інших задач */
   struct ExtCmd { char s[64]; };
@@ -61,6 +62,9 @@ namespace {
   volatile bool askWait = false;      /* Nextion::ask(): чекаємо число від екрана */
   volatile int32_t askVal = 0;
   volatile bool askGot = false;
+  /*  Те саме для рядків: без очікування «nx dump» друкував підписи й значення не в такт.  */
+  volatile bool askSWait = false, askSGot = false;
+  char askSBuf[72];
   int16_t fadeLevel = -1;             /* затемнення меню (0..255), -1 — ні */
   int16_t lastDim = -1;
   uint32_t splashUntil = 0;           /* показ заставки на прохання (кнопка в меню) */
@@ -152,6 +156,13 @@ namespace {
               rst = RX_IDLE; rlen = 0; ffs = 0;
               break;
             }
+            if(askSWait && rbuf[0] == 0x70){
+              const size_t n = (size_t)(rlen - 1) < sizeof(askSBuf) - 1 ? (size_t)(rlen - 1) : sizeof(askSBuf) - 1;
+              memcpy(askSBuf, rbuf + 1, n); askSBuf[n] = 0;
+              askSGot = true;
+              rst = RX_IDLE; rlen = 0; ffs = 0;
+              break;
+            }
             if(dumping && (rbuf[0] == 0x70 || rbuf[0] == 0x71)){
               /*  0x70 — рядок, 0x71 — число (4 байти, молодшим уперед)  */
               if(rbuf[0] == 0x70){ rbuf[rlen] = 0; telnet.printf("##NXD#\t%s\n", (char*)rbuf + 1); }
@@ -190,13 +201,18 @@ namespace {
           видно шматки самих команд). Тому кожні півкілобайта зупиняємось і чекаємо, доки
           екран розгребе чергу: питаємо в нього дрібницю й дочікуємось відповіді.  */
       burstBytes += strlen(s) + 3;
-      if(burstBytes >= 512){
+      /*  Поріг біля межі буфера (1024) і коротке чекання: сенс паузи — дати екрану розгребти
+          чергу, а не простояти. Раніше поріг був 512, чекання 300 мс і питали `sys0`, якої на
+          Discovery немає, — виходило по 300 мс простою на кожні півкілобайта.  */
+      if(burstBytes >= 900){
         burstBytes = 0;
         syncWait = true; syncGot = false;
-        rawSend("get sys0");
-        const uint32_t t0 = millis();
-        while(!syncGot && millis() - t0 < 300){ pump(); vTaskDelay(1); }
+        rawSend("get dp");
+        const uint32_t t0 = micros();
+        while(!syncGot && micros() - t0 < 120000){ pump(); vTaskDelay(1); }
         syncWait = false;
+        syncs++; syncUs += micros() - t0;
+        if(!syncGot) syncLate++;
       }
       rawSend(s);
       pfCmds++; pfBytes += strlen(s) + 3;
@@ -542,24 +558,38 @@ void Nextion::touches(char* out, size_t cap){
            dragging ? "на склі" : "знято", needBk ? "ще не задано" : "увімкнено");
 }
 
+/*  «nx dump» — що саме лежить в екрані просто зараз. Це єдиний чесний спосіб побачити вміст
+    сторінки, не дивлячись на сам екран: знімка Nextion не віддає. Кожне значення питаємо
+    й **чекаємо** відповідь: раніше підписи й значення розходились на крок, і читати такий
+    список було не можна.  */
 void Nextion::dump(){
-  static const char* const TXT[] = { "nm", "l1", "l2", "br", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp", "ini" };
-  static const char* const VAL[] = { "vol", "sk", "vm", "vc", "vs" };
+  static const char* const TXT[] = { "nm", "nms", "l1", "l1s", "l2", "br", "ck", "sc", "wd", "dt",
+                                     "tp", "tpo", "tdu", "vp", "ini" };
+  static const char* const VAL[] = { "vol", "sk", "d0", "d5", "d13", "cb0", "cb4" };
   static const char* const PIC[] = { "src", "wf", "sq", "wi" };
-  /*  Стан самого екрана: яка сторінка, чи крутяться таймери, що в смужках і скільки
-      відсотків зайнято його процесор (bcpu — недокументована, але на Discovery працює).  */
-  static const char* const SYS[] = { "dp", "bcpu", "tm1.en", "tm2.en", "vm.val", "vc.val",
-                                     "d0.val", "d1.val", "e0.val", "sk.vis", "vol.val", "tm0.en" };
+  static const char* const SYS[] = { "dp", "sendxy", "d0.vis", "sk.vis" };
   telnet.printf("##NXD#\tBEGIN\n");
-  dumping = true;
-  char c[40];
-  for(auto n : TXT){ telnet.printf("##NXD#\t%s.txt =\n", n); snprintf(c, sizeof(c), "get %s.txt", n); extSend(c); delay(60); }
-  for(auto n : VAL){ telnet.printf("##NXD#\t%s.val =\n", n); snprintf(c, sizeof(c), "get %s.val", n); extSend(c); delay(60); }
-  for(auto n : PIC){ telnet.printf("##NXD#\t%s.pic =\n", n); snprintf(c, sizeof(c), "get %s.pic", n); extSend(c); delay(60); }
-  for(auto n : SYS){ telnet.printf("##NXD#\t%s =\n", n); snprintf(c, sizeof(c), "get %s", n); extSend(c); delay(60); }
-  delay(200);
-  dumping = false;
+  char c[48], b[80];
+  for(auto n : TXT){
+    snprintf(c, sizeof(c), "%s.txt", n);
+    telnet.printf("##NXD#\t%-9s = %s\n", c, askStr(c, b, sizeof b) ? b : "(нема відповіді)");
+  }
+  for(auto n : VAL){ snprintf(c, sizeof(c), "%s.val", n); telnet.printf("##NXD#\t%-9s = %ld\n", c, (long)ask(c)); }
+  for(auto n : PIC){ snprintf(c, sizeof(c), "%s.pic", n); telnet.printf("##NXD#\t%-9s = %ld\n", c, (long)ask(c)); }
+  for(auto n : SYS){ telnet.printf("##NXD#\t%-9s = %ld\n", n, (long)ask(n)); }
   telnet.printf("##NXD#\tEND\n");
+}
+
+/*  рядкове значення з екрана; false — не відповів  */
+bool Nextion::askStr(const char* what, char* out, size_t cap){
+  char c[48]; snprintf(c, sizeof(c), "get %s", what);
+  askSBuf[0] = 0; askSGot = false; askSWait = true;
+  extSend(c);
+  for(uint8_t i = 0; i < 40 && !askSGot; i++) delay(10);
+  askSWait = false;
+  if(!askSGot) return false;
+  strlcpy(out, askSBuf, cap);
+  return true;
 }
 
 /*  для перевірки з консолі: дотик у точку екрана Nextion (натиснув і відпустив)  */
@@ -570,10 +600,11 @@ void Nextion::touch(int16_t x, int16_t y){
 
 void Nextion::perf(char* out, size_t cap){
   uint32_t ms = millis() - pfT0; if(!ms) ms = 1;
-  snprintf(out, cap, "за %u мс: команд %u (%u байт), малювання %u мс (%u%%), найдовше %u мс, помилок %u (остання %02X), вільно %u",
+  snprintf(out, cap, "за %u мс: команд %u (%u байт), малювання %u мс (%u%%), найдовше %u мс, чекань %u (не дочекались %u, разом %u мс), помилок %u (остання %02X), вільно %u",
            (unsigned)ms, (unsigned)pfCmds, (unsigned)pfBytes, (unsigned)(pfBusyUs / 1000), (unsigned)(pfBusyUs / 10 / ms),
-           (unsigned)(pfMaxUs / 1000), (unsigned)errors, lastErr, (unsigned)ESP.getFreeHeap());
-  pfCmds = pfBytes = pfBusyUs = pfMaxUs = 0; pfT0 = millis();
+           (unsigned)(pfMaxUs / 1000), (unsigned)syncs, (unsigned)syncLate, (unsigned)(syncUs / 1000),
+           (unsigned)errors, lastErr, (unsigned)ESP.getFreeHeap());
+  pfCmds = pfBytes = pfBusyUs = pfMaxUs = 0; syncs = syncLate = syncUs = 0; pfT0 = millis();
 }
 
 #endif
