@@ -49,6 +49,7 @@ class Nextion {
     /*  Самоперевірка: проганяє систему по всіх вузлах і каже, де саме зламано (nx test)  */
     void  selftest();
     void  touches(char* out, size_t cap);   /* скільки дотиків прийшло від екрана */
+    void  swipe(int16_t x, int16_t y0, int16_t y1, uint8_t steps);  /* протяг для перевірки */
     /*  прочитати число з екрана (get …): -2147483648 — не відповів  */
     int32_t ask(const char* what);
     void  touch(int16_t x, int16_t y);   /* nx touch x y — перевірка без пальця */

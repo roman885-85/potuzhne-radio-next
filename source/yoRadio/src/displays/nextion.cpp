@@ -595,6 +595,19 @@ bool Nextion::askStr(const char* what, char* out, size_t cap){
   return true;
 }
 
+/*  Протяг пальцем із консолі: натиск, кілька рухів, відпускання. Без цього прокрутку меню
+    не перевірити самому — «nx touch» шле тап в одній точці, і меню в режим прокрутки не
+    входить (саме тому перший замір стрічки показав звичайне малювання по рядках).  */
+void Nextion::swipe(int16_t x, int16_t y0, int16_t y1, uint8_t steps){
+  if(steps < 2) steps = 2;
+  uint8_t n = (tqh + 1) % 16; if(n != tqt){ tq[tqh] = { 'P', x, y0 }; tqh = n; }
+  for(uint8_t i = 1; i < steps; i++){
+    const int16_t y = (int16_t)(y0 + (int32_t)(y1 - y0) * i / (steps - 1));
+    n = (tqh + 1) % 16; if(n != tqt){ tq[tqh] = { 'M', x, y }; tqh = n; }
+  }
+  n = (tqh + 1) % 16; if(n != tqt){ tq[tqh] = { 'R', x, y1 }; tqh = n; }
+}
+
 /*  для перевірки з консолі: дотик у точку екрана Nextion (натиснув і відпустив)  */
 void Nextion::touch(int16_t x, int16_t y){
   uint8_t n = (tqh + 1) % 16; if(n != tqt){ tq[tqh] = { 'P', x, y }; tqh = n; }

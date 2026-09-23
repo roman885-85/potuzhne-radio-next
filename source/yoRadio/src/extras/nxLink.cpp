@@ -329,6 +329,13 @@ namespace NxLink {
       telnet.printf(cid, startUpload(url, baud, cid, !strcmp(mode, "v1")) ? "##NX#\tзаливку почато\n> " : "##NX#\tне вдалося почати\n> ");
       return true;
     }
+    if (!strncmp(a, "swipe ", 6)) {
+      int x = 240, y0 = 280, y1 = 120, st = 10;
+      sscanf(a + 6, "%d %d %d %d", &x, &y0, &y1, &st);
+      nextion.swipe((int16_t)x, (int16_t)y0, (int16_t)y1, (uint8_t)(st < 2 ? 2 : st > 40 ? 40 : st));
+      telnet.printf(cid, "##NX#\tпротяг %d: %d → %d за %d кроків\n> ", x, y0, y1, st);
+      return true;
+    }
     if (!strncmp(a, "touch ", 6)) {
       int x = 0, y = 0; sscanf(a + 6, "%d %d", &x, &y);
       nextion.touch(x, y);
