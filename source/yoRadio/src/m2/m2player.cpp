@@ -335,14 +335,22 @@ void Player::_row(bool force){
 }
 
 /*  ---------- гучність ---------- */
+/*  Ручка гучності доїжджає до нового значення, а не перескакує: за кадр проходить третину
+    відстані, тобто близько 200 мс на весь шлях. Це помітно, коли гучність міняють не пальцем
+    по смузі — з пульта, з програми, дотиком у край: раніше ручка стрибала (прохання власника
+    зробити так, як рухається яскравість).  */
 void Player::_vol(bool force){
   struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(5);
-  const uint16_t v = _volDrag >= 0 ? (uint16_t)_volDrag : radio::volume();
-  if(!force && v == _volShown) return;
-  _volShown = v;
+  const uint16_t want = _volDrag >= 0 ? (uint16_t)_volDrag : radio::volume();
+  if(force) _volShown = want;
+  else if(want != _volShown){
+    const int32_t d = (int32_t)want - (int32_t)_volShown;
+    const int32_t step = d > 0 ? (d + 2) / 3 : (d - 2) / 3;   /* третина відстані, але не нуль */
+    _volShown = (uint16_t)((int32_t)_volShown + step);
+  }else return;
   if(_hold[0] && (int32_t)(millis() - _hold[0]) < 0) return;   /* повзунок веде палець */
-  nxSet("vol", "val", v);
-  char b[8]; snprintf(b, sizeof(b), "%d%%", (int)((v * 100 + 127) / 254));
+  nxSet("vol", "val", _volShown);
+  char b[8]; snprintf(b, sizeof(b), "%d%%", (int)((_volShown * 100 + 127) / 254));
   nxTxt("vp", b);
 }
 
@@ -425,8 +433,9 @@ void Player::render(){
   if(_all){ _all = false; _sendAll(); return; }
   if(now - _sigT >= 250){
     _sigT = now;
-    _top(false); _card(false); _clock(false); _row(false); _vol(false);
+    _top(false); _card(false); _clock(false); _row(false);
   }
+  _vol(false);                     /* щокадру: інакше ручка доїжджала б ривками по 250 мс */
   /*  25 кадрів за секунду, а не 10: власник побачив десять як «гальмує й показує з
       запізненням». Малюємо різницею, тому кадр коштує кілька заливок.  */
   if(!radio::specOff && now - _specT >= 40){ _specT = now; _spectrum(); }

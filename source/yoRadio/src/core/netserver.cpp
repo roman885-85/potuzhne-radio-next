@@ -1,3 +1,4 @@
+#include "../extras/yoBuild.h"   /* PR_VERSION, PR_BUILD — для /api/hello */
 #include "options.h"
 #include "Arduino.h"
 #include <SPIFFS.h>
@@ -78,6 +79,22 @@ bool NetServer::begin(bool quiet) {
   nsQueue = xQueueCreate( 20, sizeof( nsRequestParams_t ) );
   while(nsQueue==NULL){;}
 
+  /*  «Ти ПОТУЖНЕ РАДІО?» — цим запитом програми-клієнти підтверджують знахідку. Оголошення
+      «_potuzhne._tcp» лише дає кандидата, а впізнає програма саме тут: чекає "potuzhne":1.
+      Без цього радіо є в мережі, видно його в Bonjour — а в списку програми немає.  */
+  webserver.on("/api/hello", HTTP_GET, [](AsyncWebServerRequest* r){
+    char b[320];
+    snprintf(b, sizeof(b),
+             "{\"potuzhne\":1,\"board\":\"NX4832F035\",\"v\":\"%s\",\"build\":\"%s\","
+             "\"host\":\"%s\",\"ip\":\"%s\",\"station\":\"%s\",\"play\":%d}",
+             PR_VERSION, PR_BUILD, config.store.mdnsname,
+             WiFi.localIP().toString().c_str(), config.station.name,
+             player.status() == PLAYING ? 1 : 0);
+    AsyncWebServerResponse* resp = r->beginResponse(200, "application/json", b);
+    resp->addHeader("Access-Control-Allow-Origin", "*");
+    resp->addHeader("Cache-Control", "no-store");
+    r->send(resp);
+  });
   webserver.on("/", HTTP_ANY, handleIndex);
   webserver.onNotFound(handleNotFound);
   webserver.onFileUpload(handleUpload);
