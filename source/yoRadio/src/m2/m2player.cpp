@@ -389,13 +389,14 @@ void Player::_spectrum(){
   float sp[14];
   if(radio::playing()) radio::bands(sp, 14); else for(uint8_t i = 0; i < 14; i++) sp[i] = 0;
   char c[8];
-  /*  Ступінь 4 % навмисне: без неї смужки смикались на одиницю й слали по 190 команд за
-      секунду — екран був зайнятий на 57 %, і це відчувалось як гальмо. Оком різниці немає:
-      4 % висоти смужки — це один піксель.  */
+  /*  Балістика, як у справжнього аналізатора: вгору — не стрибком, а на половину відстані
+      за кадр, вниз — рівномірно. Стрибком угору рух виглядав смиканим (власник: «дёрганное»).
+      Ступінь 2 % лишаємо, щоб не слати зміни, яких не видно: 2 % висоти — це пів пікселя.  */
   for(uint8_t i = 0; i < 14; i++){
     uint8_t v = (uint8_t)(sp[i] * 100); if(v > 100) v = 100;
-    if(v < _spec[i]) v = _spec[i] > fall ? (uint8_t)(_spec[i] - fall) : 0;   /* униз — плавно */
-    v = (uint8_t)(v / 4 * 4);
+    if(v > _spec[i]) v = (uint8_t)(_spec[i] + (v - _spec[i] + 1) / 2);       /* угору — плавно */
+    else             v = _spec[i] > fall ? (uint8_t)(_spec[i] - fall) : 0;   /* униз — рівно */
+    v = (uint8_t)(v / 2 * 2);
     if(v == _spec[i]) continue;
     barFill(NXPL_SPX + i * NXPL_SPSTEP, NXPL_SPTOP, NXPL_SPBW, NXPL_SPH,
             _spec[i], v, NXPL_BGCOL, NXPL_ACCCOL);

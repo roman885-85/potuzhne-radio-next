@@ -1962,9 +1962,16 @@ void Audio::pcmFeed(const uint8_t* data, size_t len){
 
 uint8_t Audio::readSpectrum(uint8_t* cur, uint8_t* peak) {
   if(!_saInitalized) return 0;
-  write_register(SCI_WRAMADDR, VS1053B_SA_BASE + 2);
-  uint8_t bands = read_register(SCI_WRAM) & 0xFF;
-  if(bands == 0 || bands > VS1053B_SA_MAX_BANDS) return 0;   /* плагін не піднявся — не малюємо сміття */
+  /*  Скільки смуг — питаємо один раз: плагін їх не міняє, а кожне зайве звертання до
+      мікросхеми чекає готовності декодера й чути в звуці.  */
+  static uint8_t bandsCached = 0;
+  uint8_t bands = bandsCached;
+  if(!bands) {
+    write_register(SCI_WRAMADDR, VS1053B_SA_BASE + 2);
+    bands = read_register(SCI_WRAM) & 0xFF;
+    if(bands == 0 || bands > VS1053B_SA_MAX_BANDS) return 0; /* плагін не піднявся — не малюємо сміття */
+    bandsCached = bands;
+  }
   write_register(SCI_WRAMADDR, VS1053B_SA_BASE + 4);
   for(uint8_t i = 0; i < bands; i++) {
     uint16_t v = read_register(SCI_WRAM);
