@@ -405,14 +405,10 @@ void Player::_spectrum(){
   /*  Мікросхема дає 14 частотних смуг. Малюємо NXPL_NBAR штук: коли їх менше, складаємо
       сусідні в групи й беремо з групи гучнішу. Кількість — один параметр у page_player.py,
       міняти можна без переписування цього коду.  */
-  float raw[14], sp[NXPL_NBAR];
-  if(radio::playing()) radio::bands(raw, 14); else for(uint8_t i = 0; i < 14; i++) raw[i] = 0;
-  const uint8_t grp = 14 / NXPL_NBAR;
-  for(uint8_t i = 0; i < NXPL_NBAR; i++){
-    float m = 0;
-    for(uint8_t k = 0; k < grp; k++){ const float v = raw[i * grp + k]; if(v > m) m = v; }
-    sp[i] = m;
-  }
+  /*  Скільки смуг дає мікросхема — її справа (буває 14, буває 10): розкладає їх на наші
+      смужки сама radio::bands().  */
+  float sp[NXPL_NBAR];
+  if(radio::playing()) radio::bands(sp, NXPL_NBAR); else for(uint8_t i = 0; i < NXPL_NBAR; i++) sp[i] = 0;
   char c[8];
   /*  Балістика, як у справжнього аналізатора: вгору — не стрибком, а на половину відстані
       за кадр, вниз — рівномірно.

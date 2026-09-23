@@ -29,7 +29,7 @@ static Item s_sndItems[] = {
   iSeg("Вище за", TREB_F, 4, [](){ return (int32_t)radio::toneTrebleF(); }, [](int32_t v){ radio::setTone(radio::toneBass(), radio::toneTreble(), radio::toneBassF(), (uint8_t)v); }),
   iNote([](){ return "тембр — у самій мікросхемі звуку VS1053:\nнизькі лише підсилюються, високі — в обидва боки"; }, 36),
 };
-static ListPage s_snd("Звук", s_sndItems, sizeof(s_sndItems) / sizeof(s_sndItems[0]));
+static ListPage s_snd("Звук", s_sndItems, sizeof(s_sndItems) / sizeof(s_sndItems[0]), "sound");
 Page& pgEq = s_snd;
 
 /*  =================== «Заставка й звуки» =================== */
@@ -64,7 +64,7 @@ static Item s_dsItems[] = {
   SFX_EV_SLIDER("Будильник", 6),
   iNote([](){ return "кнопка з трикутником — прослухати звук;\nзвуки й заставка зберігаються в екрані Nextion"; }, 36),
 };
-static ListPage s_devSnd("Заставка й звуки", s_dsItems, sizeof(s_dsItems) / sizeof(s_dsItems[0]));
+static ListPage s_devSnd("Заставка й звуки", s_dsItems, sizeof(s_dsItems) / sizeof(s_dsItems[0]), "devsnd");
 Page& pgDevSnd = s_devSnd;
 
 }  // namespace m2

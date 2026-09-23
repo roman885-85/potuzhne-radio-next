@@ -114,6 +114,9 @@ class Gfx {
     /*  ---- своє для Nextion ---- */
     /*  готова картинка на весь екран як тло ділянки: колір під точкою рахує fn  */
     void picture(uint8_t pic, int16_t x, int16_t y, int16_t w, int16_t h, BgColorFn fn);
+    /*  Шматок стрічки меню: вікно у високій картинці, зсунуте на прокрутку. Координати —
+        екранні, бо стрічка пекеться в пікселях екрана. Одна команда `xpic` на виклик.  */
+    void stripPart(uint8_t pic, int16_t dy, int16_t sy, int16_t h);
     /*  готова картинка з атласу за ключем (ключ — як у tools/nextion/sprites.py); центр у (cx, cy)  */
     bool sprite(const char* key, float cx, float cy);
     /*  готова фігура за назвою (tools/nextion/sprites.py: SHAPES) з центром у (cx, cy), поле 40×40  */

@@ -1,6 +1,7 @@
 /*  Каркас меню — з ПОТУЖНОГО РАДІО (src/m2/m2ui.cpp). Змінено під Nextion:
     кадр виводиться командами (Menu::_flush → Gfx::pass/flush), переходи між сторінками
     й «хвиля» від дотику не анімуються, калібрування сенсора немає (Nextion калібрує сам).  */
+#include "nxstrips_ids.h"   /* NXST_LIST — стрічки меню, спечені в .tft */
 #include "m2ui.h"
 #include "m2pages.h"
 #include "m2lang.h"
@@ -15,6 +16,28 @@ bool flatBg = false;      /* стенд tools/nxhost вмикає, щоб пек
     вони туди потрапили, під пальцем було б видно вчорашнє, а на зупинці воно б стрибало на
     справжнє. Порожнє місце читається як «ще не заповнено», і це чесніше.  */
 bool stripBake = false;
+
+/*  ---------- стрічки меню ----------
+    Сторінка, спечена картинкою (tools/nextion/strip.py), лежить у .tft шматками по 320 точок:
+    картинка в Nextion не буває вищою за екран. Вікно вмісту — 267 точок, тож воно завжди
+    лягає щонайбільше у два шматки, і кадр прокрутки коштує дві команди `xpic` замість сотень
+    команд малювання (рядок тексту — близько 27 мс).  */
+namespace {
+  /*  Висоти в точках екрана: шапка й вміст. Стрічка пекеться в них же.  */
+  const int16_t HDR_PX = (int16_t)(HDR * 4 / 3);
+  const int16_t CONT_PX = (int16_t)(320 - HDR * 4 / 3);
+  struct Strip { const char* key; uint16_t pic0; uint8_t chunks; int16_t height; };
+  const Strip STRIPS[] = {
+    #define X(k, p, c, h) { k, (uint16_t)(p), (uint8_t)(c), (int16_t)(h) },
+    NXST_LIST
+    #undef X
+  };
+  const Strip* findStrip(const char* key){
+    if(!key) return nullptr;
+    for(const Strip& s : STRIPS) if(!strcmp(s.key, key)) return &s;
+    return nullptr;
+  }
+}
 
 Menu M;
 
@@ -909,8 +932,23 @@ void Menu::_drawPage(Gfx& g, Page* p, int16_t dx, bool overlays){
   else       g.vgrad(0, 0, SW, 90, C_BGTOP, C_BG);
   g.fill(0, 90, SW, SH - 90, C_BG);
   Rect s1 = g.narrow(0, HDR, SW, CH);
-  g.origin(dx, HDR - p->scroll);
-  p->draw(g);
+  /*  Поки палець веде чи сторінка летить за інерцією — показуємо спечену стрічку: це дві
+      команди на кадр замість сотень. Щойно прокрутка спинилась, малюємо як завжди, зі
+      справжніми значеннями (у стрічці їх немає навмисне).  */
+  const Strip* st = (_tm == TM_SCROLL || _fling) ? findStrip(p->stripKey()) : nullptr;
+  if(st){
+    const int16_t sd = (int16_t)((int32_t)p->scroll * 4 / 3);      /* прокрутка в точках екрана */
+    const int16_t top = sd < 0 ? 0 : sd;
+    const uint8_t ch = (uint8_t)(top / NXST_CHUNK);
+    const int16_t off = (int16_t)(top % NXST_CHUNK);
+    const int16_t first = NXST_CHUNK - off < CONT_PX ? NXST_CHUNK - off : CONT_PX;
+    if(ch < st->chunks) g.stripPart((uint8_t)(st->pic0 + ch), HDR_PX, off, first);
+    if(first < CONT_PX && ch + 1 < st->chunks)
+      g.stripPart((uint8_t)(st->pic0 + ch + 1), (int16_t)(HDR_PX + first), 0, (int16_t)(CONT_PX - first));
+  }else{
+    g.origin(dx, HDR - p->scroll);
+    p->draw(g);
+  }
   if(overlays && _ripOn && !_ripHdr && _ripPage == p){
     uint32_t now = _frameT;
     float k = (now - _ripT0) / 280.0f; if(k > 1) k = 1;

@@ -300,7 +300,7 @@ static Item s_setItems[] = {
   iNav("Про радіо", IC_INFO, C_GREY, vVer, [](){ M.push(&pgInfo); }),
   iNav("Живлення", IC_POWER, C_RED, nullptr, [](){ M.push(&pgPower); }),
 };
-static ListPage s_settings("Параметри", s_setItems, sizeof(s_setItems) / sizeof(s_setItems[0]));
+static ListPage s_settings("Параметри", s_setItems, sizeof(s_setItems) / sizeof(s_setItems[0]), "settings");
 Page& pgSettings = s_settings;
 
 /*  =================== «Екран» =================== */
@@ -319,7 +319,7 @@ static Item s_scrItems[] = {
           [](int32_t v){ extras.s.nightLevel = (uint8_t)v; extras.changed(); }, "%"),
   iNote([](){ return "уночі дотик ненадовго вмикає денну яскравість"; }, 24),
 };
-static ListPage s_screen("Екран", s_scrItems, sizeof(s_scrItems) / sizeof(s_scrItems[0]));
+static ListPage s_screen("Екран", s_scrItems, sizeof(s_scrItems) / sizeof(s_scrItems[0]), "screen");
 Page& pgScreen = s_screen;
 
 /*  =================== вибір часу (ніч: з/до) =================== */
@@ -687,7 +687,7 @@ static Item s_infoItems[] = {
   iSection("ЗАРАЗ"),
   iInfo("Потік", vStream), iInfo("Погода", vWeather), iInfo("Вільна пам'ять", vHeap),
 };
-static ListPage s_info("Про радіо", s_infoItems, sizeof(s_infoItems) / sizeof(s_infoItems[0]));
+static ListPage s_info("Про радіо", s_infoItems, sizeof(s_infoItems) / sizeof(s_infoItems[0]), "info");
 Page& pgInfo = s_info;
 
 /*  =================== «Живлення» =================== */

@@ -243,6 +243,12 @@ void Gfx::picture(uint8_t pic, int16_t x, int16_t y, int16_t w, int16_t h, BgCol
   addRect(K_PIC, dx0, dy0, DX(sx + w) - dx0, DY(sy + h) - dy0, 0, pic, dx0, dy0);
 }
 
+void Gfx::stripPart(uint8_t pic, int16_t dy, int16_t sy, int16_t h){
+  if(h <= 0) return;
+  devClip(_cx0, _cy0, _cx1, _cy1);
+  addRect(K_PIC, 0, dy, 480, h, 0, pic, 0, sy);
+}
+
 /*  ---------- готові картинки з атласу ---------- */
 static uint32_t fnv(const char* s){ uint32_t h = 2166136261UL; for(; *s; s++) h = (h ^ (uint8_t)*s) * 16777619UL; return h; }
 

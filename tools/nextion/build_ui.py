@@ -92,6 +92,30 @@ def main():
         f.write('/*  Створює tools/nextion/page_boot.py — вручну не правити. Заставка сторінки «boot».  */\n#pragma once\n')
         for k, v in bootids.items(): f.write('#define NXBOOT_%s %d\n' % (k, v))
 
+    # ---- стрічки меню: сторінка, спечена картинкою, щоб листати її зсувом вікна
+    #  Малювання сторінки по рядках коштує ~27 мс на рядок тексту — звідси «меню гальмує».
+    #  Готову картинку екран показує однією командою `xpic`, тож на кадр іде щонайбільше дві
+    #  (вікно вмісту 267 точок лягає у два шматки по 320). Значень у стрічці немає навмисне:
+    #  вони живі, а стрічка робиться на збірці (див. m2::stripBake).
+    strips = {}
+    if 'strips' not in os.environ.get('NX_SKIP', ''):
+        import strip as stripmod
+        for name in ('settings', 'screen', 'devsnd', 'sound', 'info'):
+            path, height = stripmod.build(name)
+            files, h = stripmod.chunks(name, path, height)
+            first = None
+            for f in files:
+                i = p.image(f)
+                if first is None: first = i
+            strips[name] = (first, len(files), h)
+    with open(os.path.join(ROOT, 'source', 'yoRadio', 'src', 'm2', 'nxstrips_ids.h'), 'w', encoding='utf-8') as f:
+        f.write('/*  Створює tools/nextion/build_ui.py — вручну не правити.\n'
+                '    Стрічки меню: ключ, перша картинка, скільки шматків по 320 точок, повна висота.  */\n'
+                '#pragma once\n#define NXST_LIST \\\n')
+        for k, (first, n, h) in strips.items():
+            f.write('  X("%s", %d, %d, %d) \\\n' % (k, first, n, h))
+        f.write('\n#define NXST_CHUNK 320\n')
+
     # ---- ui: малює прошивка; дотики — у ESP32
     #  Подій тут немає: редактор не переносить код подій у проєкт, тому меню й не відповідало на
     #  дотики. Координати шле сам екран — прошивка вмикає «sendxy=1» (кадр 0x67 із x, y і станом).

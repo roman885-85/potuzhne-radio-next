@@ -241,8 +241,16 @@ void bands(float* out, uint8_t n){
   /*  Вікно 14 кроків (42 дБ), а не 10: при 30 дБ усе, що тихіше за пік на цю різницю,
       лягало в нуль — власник бачив десять смужок із чотирнадцяти.  */
   const float lo = ref - 14;
+  /*  Смуг від мікросхеми буває менше, ніж смужок на екрані (10 проти 14). Розкладаємо
+      рівномірно: кожна смужка бере найгучнішу зі свого шматка діапазону. Раніше зайві
+      смужки просто лишались на нулі — власник бачив десять із чотирнадцяти.  */
+  const uint8_t lim = got < VS1053B_SA_MAX_BANDS ? got : VS1053B_SA_MAX_BANDS;
   for(uint8_t i = 0; i < n; i++){
-    float v = (i < got && i < VS1053B_SA_MAX_BANDS) ? (tv[i] - lo) / 14.0f : 0;
+    const uint16_t a = (uint16_t)i * lim / n;
+    uint16_t b = (uint16_t)(i + 1) * lim / n; if(b <= a) b = a + 1;
+    float m = 0;
+    for(uint16_t k = a; k < b && k < lim; k++) if(tv[k] > m) m = tv[k];
+    const float v = (m - lo) / 14.0f;
     out[i] = v < 0 ? 0 : v > 1 ? 1 : v;
   }
 }
