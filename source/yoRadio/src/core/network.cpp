@@ -1,3 +1,4 @@
+#include "../extras/yoBuild.h"   /* PR_VERSION — у оголошенні для програм-клієнтів */
 #include "options.h"
 #include <ESPmDNS.h>
 #include "time.h"
@@ -158,8 +159,17 @@ void MyNetwork::setWifiParams(){
   WiFi.onEvent(WiFiReconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(WiFiLostConnection, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   //config.setTimeConf(); //??
-  if(strlen(config.store.mdnsname)>0)
-    MDNS.begin(config.store.mdnsname);
+  if(strlen(config.store.mdnsname)>0 && MDNS.begin(config.store.mdnsname)){
+    /*  Оголошуємо радіо в мережі, щоб програми-клієнти (Mac, Windows, Android) знаходили
+        його самі, без введення адреси. Без цього рядка радіо просто не видно в програмі
+        ПОТУЖНЕ РАДІО — вона шукає саме «_potuzhne._tcp»; «_http._tcp» — для браузерів.  */
+    MDNS.setInstanceName("ПОТУЖНЕ РАДІО");
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService("potuzhne", "tcp", 80);
+    MDNS.addServiceTxt("potuzhne", "tcp", "board", "NX4832F035");
+    MDNS.addServiceTxt("potuzhne", "tcp", "ver", PR_VERSION);
+    MDNS.addServiceTxt("potuzhne", "tcp", "host", (const char*)config.store.mdnsname);
+  }
 }
 
 void MyNetwork::requestTimeSync(bool withTelnetOutput, uint8_t clientId) {

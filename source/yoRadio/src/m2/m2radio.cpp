@@ -191,8 +191,12 @@ static volatile uint8_t saGot = 0;
 void spectrumPoll(){
   static uint32_t last = 0;
   const uint32_t now = millis();
-  if(now - last < 25) return;                  /* 40 разів за секунду: малюємо 25, читати треба частіше */
+  /*  Не частіше 20 разів за секунду: читання йде тією самою шиною SPI і з того самого циклу,
+      що годує декодер, і на 40 разах у звуці з'явились глюки. Картинці цього досить —
+      спад смужок прошивка рахує сама й малює 25 кадрів.  */
+  if(now - last < 50) return;
   last = now;
+  if(!player.ready()) return;                  /* декодер зайнятий — пропускаємо такт, а не чекаємо */
   saGot = player.readSpectrum(saCur);
 }
 

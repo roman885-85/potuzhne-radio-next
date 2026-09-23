@@ -248,6 +248,9 @@ private:
     const char volumetable[22]={   0,50,60,65,70,75,80,82,84,86,
                                   88,90,91,92,93,94,95,96,97,98,99,100}; //22 elements
     uint8_t  vuLeft, vuRight;
+    /*  Чи готова мікросхема відповідати просто зараз. Читання спектра інакше чекає DREQ
+        і тримає головний цикл, який годує декодер, — на частому опитуванні це чути.  */
+    bool     ready() const { return digitalRead(dreq_pin) == HIGH; }
 protected:
     inline void DCS_HIGH() {(dcs_pin&0x20) ? GPIO.out1_w1ts.data = 1 << (dcs_pin - 32) : GPIO.out_w1ts = 1 << dcs_pin;}
     inline void DCS_LOW()  {(dcs_pin&0x20) ? GPIO.out1_w1tc.data = 1 << (dcs_pin - 32) : GPIO.out_w1tc = 1 << dcs_pin;}
