@@ -7,6 +7,7 @@
 #include "../displays/nextion.h"
 #include "../core/telnet.h"
 #include "../core/player.h"
+#include "../m2/m2radio.h"     /* спектр: вимикач для перевірки звуку */
 #include "yoBt.h"
 namespace m2 { extern uint32_t nxZoneCnt[7]; }
 void nxSplashDemo(uint32_t ms);                  /* displays/nextion.cpp: показати заставку */   /* лічильники команд по блоках (m2player.cpp) */
@@ -331,6 +332,13 @@ namespace NxLink {
       int x = 0, y = 0; sscanf(a + 6, "%d %d", &x, &y);
       nextion.touch(x, y);
       telnet.printf(cid, "##NX#\tдотик %d,%d\n> ", x, y);
+      return true;
+    }
+    if (!strncmp(a, "spec o", 6)) {
+      /*  «nx spec off|on» — зняти спектр і послухати, чи це він псує звук. Інакше причину
+          не відділити: усе решта в радіо працює однаково з ним і без нього.  */
+      m2::radio::specOff = !strcmp(a + 5, "off");
+      telnet.printf(cid, "##NX#\tспектр %s\n> ", m2::radio::specOff ? "вимкнено" : "увімкнено");
       return true;
     }
     if (!strcmp(a, "spec")) {

@@ -253,8 +253,11 @@ def build(p, meta, out_dir):
     #  Коробка під годинник має вміщати найширше «88:88» — це 180 точок у цьому шрифті
     #  (Montserrat-Bold, клітинка 46). Була 150: екран обрізав цифри, і обрізаний край
     #  виглядав як налізання секунд на хвилини. Між годинником і секундами лишаємо проміжок.
-    pg.add('text', 'ck', **tbox('clock', 12, 168, X(139) - X(12)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='--:--', txt_maxl=8)
-    pg.add('text', 'sc', **tbox('title', 148, 168, X(180) - X(148)), pco=c565(C['TXT2']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='', txt_maxl=4)
+    #  Годинник вирівняно по правому краю (xcen=2): цифри не моноширинні — «20:59» на 9 точок
+    #  вужче за «88:88», і при лівому вирівнюванні відстань до секунд гуляла (власник:
+    #  «секунди несиметрично далеко»). Правий край нерухомий, тож проміжок сталий.
+    pg.add('text', 'ck', **tbox('clock', 12, 168, X(139) - X(12)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='--:--', txt_maxl=8)
+    pg.add('text', 'sc', **tbox('title', 147, 168, X(176) - X(147)), pco=c565(C['TXT2']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='', txt_maxl=4)
     pg.add('text', 'wd', **tbox('rowb', 200, 132, X(306) - X(200)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=40)
     pg.add('text', 'dt', **tbox('row', 180, 148, X(306) - X(180)), pco=c565(C['TXT2']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=40)
     pg.add('text', 'tp', **tbox('title', 250, 172, X(306) - X(250)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=8)

@@ -414,7 +414,7 @@ void Player::render(){
   }
   /*  25 кадрів за секунду, а не 10: власник побачив десять як «гальмує й показує з
       запізненням». Малюємо різницею, тому кадр коштує кілька заливок.  */
-  if(now - _specT >= 40){ _specT = now; _spectrum(); }
+  if(!radio::specOff && now - _specT >= 40){ _specT = now; _spectrum(); }
   _sec();
 }
 
