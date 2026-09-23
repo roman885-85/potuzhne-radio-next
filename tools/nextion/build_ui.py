@@ -84,16 +84,18 @@ def main():
 
     # ---- boot: поки чорна (анімація заставки — окремо)
     if 'boot' not in os.environ.get('NX_SKIP', ''):
-        page_boot.build(p, os.path.join(OUT, 'boot'))
+        bootids = page_boot.build(p, os.path.join(OUT, 'boot'))
     else:
-        boot = p.page('boot'); boot.set('boot', sta=1, bco=0)
+        boot = p.page('boot'); boot.set('boot', sta=1, bco=0); bootids = {}
+    #  Кадри заставки перемикає прошивка (код подій у проєкт не потрапляє) — тож номери їй
+    with open(os.path.join(ROOT, 'source', 'yoRadio', 'src', 'm2', 'nxboot_ids.h'), 'w', encoding='utf-8') as f:
+        f.write('/*  Створює tools/nextion/page_boot.py — вручну не правити. Заставка сторінки «boot».  */\n#pragma once\n')
+        for k, v in bootids.items(): f.write('#define NXBOOT_%s %d\n' % (k, v))
 
     # ---- ui: малює прошивка; дотики — у ESP32
+    #  Подій тут немає: редактор не переносить код подій у проєкт, тому меню й не відповідало на
+    #  дотики. Координати шле сам екран — прошивка вмикає «sendxy=1» (кадр 0x67 із x, y і станом).
     ui = p.page('ui'); ui.set('ui', sta=1, bco=0)
-    ui.add('timer', 'tm0', tim=50, en=0)
-    ui.event('tm0', 'timer', 'printh 7E 4D\r\nprints tch0,2\r\nprints tch1,2')
-    ui.event('ui', 'down', 'printh 7E 50\r\nprints tch0,2\r\nprints tch1,2\r\ntm0.en=1')
-    ui.event('ui', 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch2,2\r\nprints tch3,2')
 
     # ---- pl: головний екран рідними компонентами
     plids = {} if 'pl' in os.environ.get('NX_SKIP', '') else page_player.build(p, meta, os.path.join(OUT, 'pl'))

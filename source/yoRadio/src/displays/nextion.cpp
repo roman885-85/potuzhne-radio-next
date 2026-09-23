@@ -5,11 +5,13 @@
 #include "../core/config.h"
 #include "../core/player.h"
 #include "../core/network.h"
+#include "../core/telnet.h"
 #include "../m2/m2ui.h"
 #include "../m2/m2pages.h"
 #include "../m2/m2player.h"
 #include "../m2/m2bridge.h"
 #include "../m2/m2radio.h"
+#include "../m2/nxboot_ids.h"
 #include "../extras/yoExtras.h"
 
 HardwareSerial hSerial(1);            /* UART1 — екран (extras/nxLink теж ним користується) */
@@ -46,12 +48,45 @@ namespace {
   volatile bool shotReq = false;
   volatile bool reinit = false;       /* екран стартував заново — показати сторінку з нуля */
   volatile uint32_t rawUntil = 0;     /* «nx raw»: писати в консоль усе, що шле екран */
+  /*  Протяг пальця: «sendxy» шле лише натиск і відпускання, а рух — ні. Доки палець на склі,
+      питаємо в екрана tch0/tch1 (дві відповіді підряд: x, потім y).  */
+  volatile bool    dragging = false, dragWait = false;
+  volatile uint8_t dragStep = 0;
+  volatile int16_t dragX = 0;
+  uint32_t dragT = 0;
+  /*  Скільки кадрів дотику прийшло і де був останній — щоб перевірити сенсор, не дивлячись
+      на екран: власник торкається, а ми читаємо числа по мережі («nx touches»).  */
+  volatile uint32_t touchCnt = 0;
+  volatile int16_t  touchLX = -1, touchLY = -1;
   volatile bool askWait = false;      /* Nextion::ask(): чекаємо число від екрана */
   volatile int32_t askVal = 0;
   volatile bool askGot = false;
   int16_t fadeLevel = -1;             /* затемнення меню (0..255), -1 — ні */
   int16_t lastDim = -1;
   uint32_t splashUntil = 0;           /* показ заставки на прохання (кнопка в меню) */
+  /*  Заставку крутить прошивка: код подій у проєкт екрана не потрапляє, тому таймера з
+      «bp.pic++» там немає. 24 кадри по 50 мс, далі три крапки очікування.  */
+  void rawSend(const char* s);        /* нижче; заставці потрібен тут */
+  bool     bootAnim = false;
+  uint8_t  bootFrame = 0, bootTick = 0, bootDot = 0;
+  uint32_t bootT = 0;
+
+  void bootStep(){
+    if(millis() - bootT < 50) return;
+    bootT = millis();
+    char c[40];
+    if(bootFrame < NXBOOT_BOOTN){
+      snprintf(c, sizeof(c), "bp.pic=%d", NXBOOT_BOOT0 + bootFrame); rawSend(c); bootFrame++;
+      return;
+    }
+    if(++bootTick <= 7) return;          /* крапку рухаємо раз на ≈0,4 с, інакше блимає */
+    bootTick = 0; bootDot = (uint8_t)((bootDot + 1) % 3);
+    for(uint8_t k = 0; k < 3; k++){
+      snprintf(c, sizeof(c), "cirs %d,%d,6,%u", NXBOOT_BOOTDX + k * 30, NXBOOT_BOOTY,
+               (unsigned)(k == bootDot ? NXBOOT_BOOTC : 0));
+      rawSend(c);
+    }
+  }
 
   void rxByte(uint8_t c){
     /*  Сирий запис усього, що йде з екрана: єдиний спосіб побачити, чи доходять кадри
@@ -78,8 +113,38 @@ namespace {
         break;
       case RX_REPLY:
         if(rbuf[0] == 0x71 && rlen < 5){ rbuf[rlen++] = c; break; }   /* −1 = FF FF FF FF, не термінатор */
+        /*  Кадр координат дотику (sendxy=1): 0x67 x_hi x_lo y_hi y_lo стан. Серед цих байтів
+            трапляється 0xFF, тому набираємо їх за довжиною, а не до термінатора.  */
+        if((rbuf[0] == 0x67 || rbuf[0] == 0x68) && rlen < 6){ rbuf[rlen++] = c; break; }
         if(c == 0xFF){
           if(++ffs == 3){
+            if((rbuf[0] == 0x67 || rbuf[0] == 0x68) && rlen >= 6){
+              /*  Єдине джерело дотиків: код подій у проєкт екрана не потрапляє, тому рамки
+                  0x7E від сторінок мовчать. Координати — big endian (у «prints» навпаки).  */
+              const int16_t tx = (int16_t)(((uint16_t)rbuf[1] << 8) | rbuf[2]);
+              const int16_t ty = (int16_t)(((uint16_t)rbuf[3] << 8) | rbuf[4]);
+              const bool press = rbuf[5] != 0;
+              dragging = press; dragStep = 0; dragWait = false;
+              touchCnt++; touchLX = tx; touchLY = ty;
+              uint8_t n = (tqh + 1) % 16;
+              if(n != tqt){ tq[tqh] = { (uint8_t)(press ? 'P' : 'R'), tx, ty }; tqh = n; }
+              rst = RX_IDLE; rlen = 0; ffs = 0;
+              break;
+            }
+            if(dragWait && rbuf[0] == 0x71 && rlen >= 5){
+              /*  Протяг пальця екран сам не шле — питаємо tch0/tch1, доки палець на склі.  */
+              const int16_t v = (int16_t)(uint16_t)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8));
+              if(dragStep == 1){ dragX = v; dragStep = 2; }       /* перша відповідь — tch0 (x) */
+              else{
+                dragStep = 0; dragWait = false;                   /* друга — tch1 (y), і кадр готовий */
+                if(dragging && (v || dragX)){
+                  uint8_t n = (tqh + 1) % 16;
+                  if(n != tqt){ tq[tqh] = { 'M', dragX, v }; tqh = n; }
+                }
+              }
+              rst = RX_IDLE; rlen = 0; ffs = 0;
+              break;
+            }
             if(syncWait && rbuf[0] == 0x71){ syncGot = true; rst = RX_IDLE; rlen = 0; ffs = 0; break; }
             if(askWait && rbuf[0] == 0x71 && rlen >= 5){
               askVal = (int32_t)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8) | ((uint32_t)rbuf[3] << 16) | ((uint32_t)rbuf[4] << 24));
@@ -89,8 +154,8 @@ namespace {
             }
             if(dumping && (rbuf[0] == 0x70 || rbuf[0] == 0x71)){
               /*  0x70 — рядок, 0x71 — число (4 байти, молодшим уперед)  */
-              if(rbuf[0] == 0x70){ rbuf[rlen] = 0; Serial.printf("##NXD#\t%s\n", (char*)rbuf + 1); }
-              else if(rlen >= 5) Serial.printf("##NXD#\t%ld\n", (long)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8) | ((uint32_t)rbuf[3] << 16) | ((uint32_t)rbuf[4] << 24)));
+              if(rbuf[0] == 0x70){ rbuf[rlen] = 0; telnet.printf("##NXD#\t%s\n", (char*)rbuf + 1); }
+              else if(rlen >= 5) telnet.printf("##NXD#\t%ld\n", (long)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8) | ((uint32_t)rbuf[3] << 16) | ((uint32_t)rbuf[4] << 24)));
               rst = RX_IDLE; rlen = 0; ffs = 0;
               break;
             }
@@ -112,12 +177,13 @@ namespace {
   struct SerialSink : m2::NxSink {
     void cmd(const char* s) override {
       if(nextion.paused) return;
+      if(!strncmp(s, "page ", 5)) bootAnim = false;   /* пішли зі сторінки заставки — спинити її */
       /*  Підтвердження на кожну команду (bkcmd=3) були потрібні, доки прошивка малювала
           сторінку сама тисячами команд. Рідна сторінка їх шле десятками — а чекання на
           підтвердження коштувало до 60 мс простою задачі екрана на кожну команду, і саме
           через це стояли годинник і дотики. Тепер підтверджень не просимо, а сплеск
           (перший показ сторінки) розводимо паузами, щоб не переповнити буфер екрана.  */
-      if(needBk){ needBk = false; rawSend("bkcmd=2"); }
+      if(needBk){ needBk = false; rawSend("bkcmd=2"); rawSend("sendxy=1"); }   /* екран стартував заново — режими наново */
       /*  Приймальний буфер екрана — 1024 байти, і при переповненні він, за документацією,
           викидає ВСІ накопичені команди. Сторінка плеєра шле десятки команд і туди не
           впирається, а меню — сотні, і саме там виходило сміття на екрані (у текстах було
@@ -200,6 +266,14 @@ namespace {
       if(nextion.paused){ vTaskDelay(pdMS_TO_TICKS(20)); continue; }
       pump();
       drainExt();
+      /*  Палець на склі — питаємо, де він зараз: «sendxy» руху не шле.  */
+      /*  Не питаємо під час «get» із інших місць (самоперевірка, dump): відповіді 0x71
+          однакові на вигляд, і опитування протягу забрало б чужу.  */
+      if(dragging && !dragWait && !askWait && !syncWait && !dumping && millis() - dragT >= 50){
+        dragT = millis(); dragStep = 1; dragWait = true;
+        rawSend("get tch0"); rawSend("get tch1");
+      }
+      if(bootAnim) bootStep();
       while(tqt != tqh){ Touch t = tq[tqt]; tqt = (tqt + 1) % 16; if(nextion.started()) handleTouch(t); }
       if(nextion.started()){
         if(splashUntil && (int32_t)(millis() - splashUntil) >= 0){ splashUntil = 0; m2::P.show(); }
@@ -278,7 +352,11 @@ namespace {
 
 /*  для m2menu.cpp  */
 void nxFade(uint16_t level){ fadeLevel = level == 0xFFFF ? -1 : (int16_t)(level > 255 ? 255 : level); applyDim(); }
-void nxSplashDemo(uint32_t ms){ extSend("page boot"); splashUntil = millis() + ms; if(!splashUntil) splashUntil = 1; }
+void nxSplashDemo(uint32_t ms){
+  extSend("page boot");
+  bootFrame = 0; bootTick = 0; bootDot = 0; bootT = millis(); bootAnim = true;
+  splashUntil = millis() + ms; if(!splashUntil) splashUntil = 1;
+}
 
 Nextion::Nextion(){}
 
@@ -288,13 +366,15 @@ void Nextion::begin(bool dummy){
   hSerial.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
   handshake();
   rawSend("bkcmd=2");                                   /* у нормі тиша, помилка команди приходить */
+  rawSend("sendxy=1");                                  /* координати дотику — кадром 0x67 (див. rxByte) */
+  bootFrame = 0; bootTick = 0; bootDot = 0; bootT = millis();
   delay(20);
   while(hSerial.available()) hSerial.read();
   needBk = false;
   extq = xQueueCreate(12, sizeof(ExtCmd));
   extras.begin();
   m2::nxSink = &sink;
-  if(extras.s.splashOff){ rawSend("page ui"); }
+  if(extras.s.splashOff) rawSend("page ui"); else bootAnim = true;
   /*  пріоритет 1 (як головний цикл): екрану не можна відбирати час у мережі й звуку  */
   xTaskCreatePinnedToCore(nxTask, "nxui", 6144, NULL, 1, NULL, 0);
 }
@@ -401,45 +481,32 @@ void Nextion::selftest(){
   auto say = [&](bool ok, const char* name, const char* fmt, ...){
     char v[120]; va_list a; va_start(a, fmt); vsnprintf(v, sizeof(v), fmt, a); va_end(a);
     if(!ok) bad++;
-    Serial.printf("##NXT#\t%-22s %s  %s\n", name, ok ? "ГАРАЗД" : "ЗЛАМАНО", v);
+    telnet.printf("##NXT#\t%-22s %s  %s\n", name, ok ? "ГАРАЗД" : "ЗЛАМАНО", v);
   };
-  Serial.println("##NXT#\tПОЧАТОК");
+  telnet.printf("##NXT#\tПОЧАТОК\n");
 
   /*  1. екран узагалі відповідає  */
   const int32_t dp = ask("dp");
   say(dp != INT32_MIN, "зв'язок з екраном", "сторінка %ld", (long)dp);
-  if(dp == INT32_MIN){ Serial.println("##NXT#\tКІНЕЦЬ: екран мовчить"); return; }
+  if(dp == INT32_MIN){ telnet.printf("##NXT#\tКІНЕЦЬ: екран мовчить\n"); return; }
 
   /*  2. чи та сторінка  */
   say(dp == 2 || m2::M.active(), "сторінка плеєра", "dp=%ld, меню %s", (long)dp, m2::M.active() ? "відкрите" : "закрите");
 
-  /*  3. таймер екрана справді виконується: пишемо мітку й дивимось, чи спаде  */
+  /*  3. смужка спектра — рідний компонент екрана: що поклали, те й лежить.
+      Таймерів на сторінці немає навмисне: код подій у проєкт не потрапляє (див. ЖУРНАЛ),
+      тому перевіряти «чи крутиться таймер» більше нема чого — крутить усе прошивка.  */
   if(dp == 2){
-    const int32_t t0 = ask("vt.val");
-    delay(500);
-    const int32_t t1 = ask("vt.val");
-    say(t1 != INT32_MIN && t1 > t0, "таймер екрана", "тактів за 0,5 с: %ld", (long)(t1 - t0));
-    extSend("d0.val=100"); delay(400);
+    extSend("d0.val=77"); delay(150);
     const int32_t d0 = ask("d0.val");
-    say(d0 != INT32_MIN && d0 < 100, "спад смужки", "за 0,4 с: 100 → %ld", (long)d0);
-    /*  5. завантаженість процесора екрана  */
+    say(d0 == 77, "смужка спектра", "поклали 77 → %ld", (long)d0);
+    extSend("d0.val=0");
     const int32_t cpu = ask("bcpu");
-    say(cpu == INT32_MIN || cpu < 80, "процесор екрана", "%ld%%", (long)cpu);
-  }
-
-  /*  5а. що саме Nextion уміє в арифметиці — від цього залежить, де рахувати прокрутку.
-      Перевіряємо трьома кроками, кожен окремо: присвоєння змінної змінній, віднімання
-      двох змінних, і порівняння змінної з числом (це точно працює).  */
-  if(dp == 2){
-    extSend("d1.val=77"); extSend("vv.val=0"); delay(200);
-    extSend("vv.val=d1.val"); delay(200);
-    const int32_t asgn = ask("vv.val");
-    say(asgn == 77, "присвоєння змінних", "vv=d1(77) → %ld", (long)asgn);
-
-    extSend("vq.val=100"); delay(150);
-    extSend("vq.val=vq.val-d1.val"); delay(200);
-    const int32_t sub = ask("vq.val");
-    say(sub == 23, "віднімання змінних", "100-d1(77) → %ld", (long)sub);
+    if(cpu == INT32_MIN) say(true, "процесор екрана", "не відповідає (на Discovery буває)");
+    else say(cpu < 80, "процесор екрана", "%ld%%", (long)cpu);
+    /*  дотики: екран має слати координати сам  */
+    const int32_t sxy = ask("sendxy");
+    say(sxy == 1, "координати дотику", "sendxy=%ld", (long)sxy);
   }
 
   /*  6. годинник  */
@@ -462,10 +529,18 @@ void Nextion::selftest(){
   /*  10. пам'ять  */
   say(m2::radio::freeHeap() > 40000, "вільна пам'ять", "%lu байт", (unsigned long)m2::radio::freeHeap());
 
-  Serial.printf("##NXT#\tКІНЕЦЬ: зламано %u\n", (unsigned)bad);
+  telnet.printf("##NXT#\tКІНЕЦЬ: зламано %u\n", (unsigned)bad);
 }
 
 void Nextion::raw(uint16_t sec){ rawUntil = millis() + (uint32_t)sec * 1000; }
+
+/*  «nx touches»: скільки дотиків прийшло від екрана й де був останній. Так сенсор можна
+    перевірити на відстані — власник торкається, а ми читаємо числа.  */
+void Nextion::touches(char* out, size_t cap){
+  snprintf(out, cap, "дотиків %lu, останній %d,%d, палець %s, sendxy %s",
+           (unsigned long)touchCnt, (int)touchLX, (int)touchLY,
+           dragging ? "на склі" : "знято", needBk ? "ще не задано" : "увімкнено");
+}
 
 void Nextion::dump(){
   static const char* const TXT[] = { "nm", "l1", "l2", "br", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp", "ini" };
@@ -475,16 +550,16 @@ void Nextion::dump(){
       відсотків зайнято його процесор (bcpu — недокументована, але на Discovery працює).  */
   static const char* const SYS[] = { "dp", "bcpu", "tm1.en", "tm2.en", "vm.val", "vc.val",
                                      "d0.val", "d1.val", "e0.val", "sk.vis", "vol.val", "tm0.en" };
-  Serial.println("##NXD#\tBEGIN");
+  telnet.printf("##NXD#\tBEGIN\n");
   dumping = true;
   char c[40];
-  for(auto n : TXT){ Serial.printf("##NXD#\t%s.txt =\n", n); snprintf(c, sizeof(c), "get %s.txt", n); extSend(c); delay(60); }
-  for(auto n : VAL){ Serial.printf("##NXD#\t%s.val =\n", n); snprintf(c, sizeof(c), "get %s.val", n); extSend(c); delay(60); }
-  for(auto n : PIC){ Serial.printf("##NXD#\t%s.pic =\n", n); snprintf(c, sizeof(c), "get %s.pic", n); extSend(c); delay(60); }
-  for(auto n : SYS){ Serial.printf("##NXD#\t%s =\n", n); snprintf(c, sizeof(c), "get %s", n); extSend(c); delay(60); }
+  for(auto n : TXT){ telnet.printf("##NXD#\t%s.txt =\n", n); snprintf(c, sizeof(c), "get %s.txt", n); extSend(c); delay(60); }
+  for(auto n : VAL){ telnet.printf("##NXD#\t%s.val =\n", n); snprintf(c, sizeof(c), "get %s.val", n); extSend(c); delay(60); }
+  for(auto n : PIC){ telnet.printf("##NXD#\t%s.pic =\n", n); snprintf(c, sizeof(c), "get %s.pic", n); extSend(c); delay(60); }
+  for(auto n : SYS){ telnet.printf("##NXD#\t%s =\n", n); snprintf(c, sizeof(c), "get %s", n); extSend(c); delay(60); }
   delay(200);
   dumping = false;
-  Serial.println("##NXD#\tEND");
+  telnet.printf("##NXD#\tEND\n");
 }
 
 /*  для перевірки з консолі: дотик у точку екрана Nextion (натиснув і відпустив)  */

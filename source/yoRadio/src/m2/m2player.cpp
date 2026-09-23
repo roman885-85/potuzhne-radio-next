@@ -162,6 +162,9 @@ void Player::show(){
   _sTop = _sCard = _sClock = _sRow = _sVol = 0;
   shadow.forget();                     /* сторінка наново — в екрані вже не те, що ми пам'ятали */
   nx("page pl");
+  /*  Повзунки веде прошивка (координати дотику приходять від «sendxy»), тому власний дотик
+      їм вимикаємо — інакше екран пересував би повзунок сам і сперечався з прошивкою.  */
+  nx("tsw vol,0"); nx("tsw sk,0");
   _sendAll();
 }
 
@@ -220,7 +223,7 @@ void Player::_card(bool force){
     scrollText("l1", "l1s", l1, F_ROWB, 270);
     nxTxt("l2", l2);
     nxVis("pil", false); nxVis("br", false); nxVis("pb", false);
-    nxSet("vc", "val", 0);
+    _cardBars(false);
     return;
   }
   if(sermonOn()){
@@ -242,10 +245,7 @@ void Player::_card(bool force){
     nxTxt("br", b); nxVis("pil", true); nxVis("br", true);
   }else{ nxVis("pil", false); nxVis("br", false); }
   nxVis("pb", !playing);
-  nxSet("vc", "val", playing ? 1 : 0);
-  /*  Таймер смужок увімкнений у самому проєкті (увімкнення командою ззовні його не запускає).
-      Малює він лише коли є що: у тиші висоти не ростуть, а рядок зайнятий — vm це скаже.  */
-  nxSet("tm2", "en", playing ? 1 : 0);      /* риски в картці малює екран у своєму таймері */
+  _cardBars(playing);
 }
 
 /*  ---------- годинник, дата, погода ---------- */
@@ -271,7 +271,6 @@ void Player::_clock(bool force){
   if(radio::timeOk()){
     snprintf(b, sizeof(b), "%02d:%02d", t.tm_hour, t.tm_min); nxTxt("ck", b);
     snprintf(b, sizeof(b), "%02d", t.tm_sec); nxTxt("sc", b);
-    nxSet("vs", "val", t.tm_sec);
     nxTxt("wd", tr(WDAY[t.tm_wday % 7]));
     snprintf(b, sizeof(b), "%d %s", t.tm_mday, tr(MON[t.tm_mon % 12])); nxTxt("dt", b);
   }else{
@@ -296,20 +295,17 @@ void Player::_row(bool force){
   _sRow = r; _mode = m;
   if(modeChanged){
     char c[8];
-    nxSet("vm", "val", m);
-    if(m != 0){                          /* рядок зайняли обране чи пульт — прибрати смужки */
-      nx("fill %d,%d,%d,%d,%u", NXPL_SPX, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
-      for(uint8_t i = 0; i < 14; i++){ snprintf(c, sizeof(c), "d%u", i); nxSet(c, "val", 4); _spec[i] = 4; }
+    /*  Смужки спектра — рідні компоненти екрана: рядок зайняли обране чи пульт — просто ховаємо.  */
+    for(uint8_t i = 0; i < 14; i++){
+      snprintf(c, sizeof(c), "d%u", i);
+      if(m != 0){ nxSet(c, "val", 0); _spec[i] = 0; }
+      nxVis(c, m == 0);
     }
     for(uint8_t i = 0; i < 6; i++){
       snprintf(c, sizeof(c), "f%u", i); nxVis(c, m == 1);
       snprintf(c, sizeof(c), "fi%u", i); nxVis(c, m == 1);
     }
     nxVis("bp", m == 2); nxVis("bn", m == 2); nxVis("sk", m == 2); nxVis("tpo", m == 2); nxVis("tdu", m == 2);
-    /*  Зона дотику рядка лежить поверх повзунка перемотки (інакше її ковтають картинки
-        над нею). У режимі пульта віддаємо рядок повзунку — штатною «tsw».  */
-    nx("tsw tr,%d", m == 2 ? 0 : 1);
-    nxVis("tr", m != 2);                 /* у пульті дотики бере сам екран (кнопки й повзунок) */
   }
   if(m == 1){
     const int8_t pl = extras.favPlaying();
@@ -350,21 +346,38 @@ void Player::_vol(bool force){
 /*  Смужки опускає сам екран (таймер tm2, по 3 за кадр 40 мс). Звідси йде тільки підйом:
     тримаємо в пам'яті ту саму модель падіння й шлемо d<k>, лише коли стало гучніше.
     Через це в тиші по шині не йде нічого.  */
+/*  Риски в картці — ті самі п'ять смужок, що й у рядку спектра, лише нижчі.  */
+void Player::_cardBars(bool on){
+  char c[8];
+  static const uint8_t SRC[5] = { 2, 5, 8, 11, 13 };
+  for(uint8_t k = 0; k < 5; k++){
+    snprintf(c, sizeof(c), "cb%u", k);
+    nxSet(c, "val", on ? _spec[SRC[k]] : 0);
+    nxVis(c, on);
+  }
+  _bars = on;
+}
+
+/*  Спектр. Смужки — рідні компоненти екрана («Progress bar»), тому висоту і підйом, і спад
+    рахує прошивка, а екран лише малює число 0..100. Спад — 3 одиниці на кожні 40 мс, як
+    було закладено в таймері екрана, щоб рух лишився тим самим.  */
 void Player::_spectrum(){
   struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(6);
   const uint32_t now = millis();
   const uint32_t dt = _specT0 ? now - _specT0 : 0;
   _specT0 = now;
-  const uint8_t fall = (uint8_t)(dt * 3 / 40);       /* стільки екран устиг опустити */
+  const uint8_t fall = (uint8_t)(dt * 3 / 40);
   float sp[14];
   if(radio::playing()) radio::bands(sp, 14); else for(uint8_t i = 0; i < 14; i++) sp[i] = 0;
   char c[8];
   for(uint8_t i = 0; i < 14; i++){
-    uint8_t cur = _spec[i] > fall + 4 ? (uint8_t)(_spec[i] - fall) : 4;
-    uint8_t v = (uint8_t)(sp[i] * 100); if(v > 100) v = 100; if(v < 4) v = 4;
-    _spec[i] = cur;
-    if(v > cur){ _spec[i] = v; snprintf(c, sizeof(c), "d%u", i); nxSet(c, "val", v); }
+    uint8_t v = (uint8_t)(sp[i] * 100); if(v > 100) v = 100;
+    if(v < _spec[i]) v = _spec[i] > fall ? (uint8_t)(_spec[i] - fall) : 0;   /* униз — плавно */
+    if(v == _spec[i]) continue;
+    _spec[i] = v;
+    snprintf(c, sizeof(c), "d%u", i); nxSet(c, "val", v);
   }
+  if(_bars) _cardBars(true);
 }
 
 void Player::render(){
@@ -397,7 +410,24 @@ void Player::onPress(int16_t x, int16_t y){
   else _zone = 6;
 }
 
-void Player::onDrag(int16_t x, int16_t y){ _lx = x; _ly = y; }
+/*  Повзунки веде прошивка, а не екран: подій у проєкті немає, зате є координати дотику.
+    Гучність ставимо і на протязі — інакше вона мінялась би лише коли палець відпустили.  */
+void Player::_volFromX(int16_t x){
+  int v;
+  if(x <= 58) v = 0;
+  else if(x >= SW - 66) v = 254;
+  else v = (int)((long)(x - 58) * 254 / (SW - 66 - 58));
+  radio::setVolume((uint8_t)v);
+}
+
+void Player::onDrag(int16_t x, int16_t y){
+  _lx = x; _ly = y;
+  if(_zone != 5) return;
+  const uint32_t now = millis();
+  if(now - _volSent < 90) return;        /* 11 разів на секунду досить, щоб рух був плавним */
+  _volSent = now;
+  _volFromX(x);
+}
 
 void Player::onRelease(int16_t x, int16_t y){
   (void)x; (void)y;
@@ -418,16 +448,19 @@ void Player::onRelease(int16_t x, int16_t y){
         int i = ((int)_px - 30 + 26) / 52; if(i < 0) i = 0; if(i > 5) i = 5;
         if(extras.fav[i].url[0]) extras.favPlay((uint8_t)i);
         else radio::openFav();
+      }else if(_rowMode() == 2){         /* пульт: смуга перемотки (повзунок сам дотик не бере) */
+        const int x0 = (int)lroundf((NXPL_SEEKX + NXPL_SEEKH / 2.0f) / 1.5f);
+        const int w  = (int)lroundf((NXPL_SEEKW - NXPL_SEEKH) / 1.5f);
+        int q = w > 0 ? (int)((long)(_lx - x0) * 1000 / w) : 0;
+        if(q < 0) q = 0; if(q > 1000) q = 1000;
+        const uint32_t dur = radio::durSec();
+        nxSet("sk", "val", (uint16_t)q);
+        if(dur) radio::seek((uint32_t)((uint64_t)dur * q / 1000));
       }
       break;
-    case 5: {                            /* рядок спектра й смуга гучності: дотик = поставити гучність */
-      int v;
-      if(_px <= 58) v = 0;
-      else if(_px >= SW - 66) v = 254;
-      else v = (int)((long)(_px - 58) * 254 / (SW - 66 - 58));
-      radio::setVolume((uint8_t)v);
+    case 5:                              /* смуга гучності: де торкнулись — така й гучність */
+      _volFromX(_lx);
       break;
-    }
     default: break;
   }
 }

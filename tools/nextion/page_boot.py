@@ -85,41 +85,11 @@ def build(p, outdir):
 
     pg = p.page('boot')
     pg.set('boot', sta=1, bco=0)
-    pg.add('variable', 'bf', sta=0, val=0)          # номер кадру
-    pg.add('variable', 'bd', sta=0, val=0)          # крапка очікування 0..2
-    pg.add('variable', 'bs', sta=0, val=0)          # лічильник тіків між крапками
     pg.add('picture', 'bp', x=0, y=0, w=W, h=H, pic=first)
-    pg.add('timer', 'bt', tim=1000 // FPS if 1000 // FPS >= 50 else 50, en=1)
-    #  Вступ — кадрами; далі три крапки, які екран малює сам. doevents наприкінці обов'язковий:
-    #  без нього наступний тик почнеться, доки попередня перемальовка ще йде.
-    dots = []
-    for k in range(3):
-        x = W // 2 - 30 + k * 30
-        dots.append('if(bd.val==%d)' % k); dots.append('{')
-        dots.append('cirs %d,%d,6,%d' % (x, 268, gfx.to565(ACC)))
-        dots.append('}')
-        dots.append('if(bd.val!=%d)' % k)
-        dots.append('{')
-        dots.append('cirs %d,%d,6,%d' % (x, 268, 0))
-        dots.append('}')
-    code = [
-        'if(bf.val<%d)' % (FRAMES - 1),
-        '{',
-        'bf.val=bf.val+1',
-        'bp.pic=%d+bf.val' % first,
-        '}',
-        'else',
-        '{',
-        #  тік таймера — 50 мс; крапку рухаємо раз на вісім тіків (≈0,4 с), інакше блимає
-        'bs.val=bs.val+1',
-        'if(bs.val>7)',
-        '{',
-        'bs.val=0',
-        'bd.val=bd.val+1',
-        'if(bd.val>2)',
-        '{',
-        'bd.val=0',
-        '}',
-    ] + dots + ['}', '}', 'doevents']
-    pg.event('bt', 'timer', '\r\n'.join(code))
+    #  Кадри перемикає прошивка, а не таймер екрана: редактор не переносить код подій у проєкт
+    #  (перевірено — у події «timer» список коду порожній, тому заставка й не оживала). Ціна
+    #  невелика: 24 команди «bp.pic=…» за 1,2 с і три крапки очікування командою «cirs».
+    ids['BOOTY'] = 268                               # рядок, де прошивка малює крапки очікування
+    ids['BOOTDX'] = W // 2 - 30                      # перша крапка; крок 30
+    ids['BOOTC'] = gfx.to565(ACC)
     return ids

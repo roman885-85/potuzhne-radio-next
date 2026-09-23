@@ -5,9 +5,10 @@
   бігучі рядки (назва станції, пісня), тексти (годинник, дата, погода, виконавець, бітрейт),
   картинки станів (значок джерела, сигнал, дзвоник/місяць, квадрат ініціалів, кнопка «грати»,
   погода, кружки обраного, кнопки пульта), смужки (риски в картці, 32 риски спектра),
-  повзунки (гучність, перемотка). Секунди годинник рахує сам (таймер), ESP32 лише звіряє.
-Дотики: весь екран вище гучності — одна зона, що шле координати (як сторінка «ui»); повзунки
-тягнуться самим екраном і шлють значення.
+  повзунки (гучність, перемотка).
+Подій (коду в самому екрані) на сторінці немає жодної: редактор не переносить код подій у
+проєкт, тому все, що на них трималось, мовчало. Дотики екран шле сам — «sendxy=1», кадр 0x67
+із координатами; секунди, спектр і положення повзунків ставить прошивка командами.
 
 Геометрія — з m2player.cpp ПОТУЖНОГО (екран 320×240): положення ×1,5 / ×4/3, розміри ×4/3.
 Номери картинок і назви компонентів для прошивки — у source/yoRadio/src/m2/nxpl_ids.h.
@@ -210,19 +211,22 @@ def build(p, meta, out_dir):
     def tbox(role, xv, base_v, wdev, align=0):
         m = meta[role]
         return dict(x=X(xv), y=Y(base_v) - m['asc'], w=wdev, h=m['h'], font=m['id'])
-    # таймер дотиків і секунд
-    pg.add('timer', 'tm0', tim=50, en=0)
-    pg.event('tm0', 'timer', 'printh 7E 4D\r\nprints tch0,2\r\nprints tch1,2')
-    pg.add('variable', 'vs', sta=0, val=0)
-    for k in range(NBAR): pg.add('variable', 'd%d' % k, sta=0, val=0)                   # висоти смужок 0..100
-    pg.add('timer', 'tm2', tim=50, en=1)   # 50 мс — мінімум для таймера Nextion, тобто стеля 20 кадрів/с
-    pg.add('variable', 'vv', sta=0, val=0)
-    pg.add('variable', 'vq', sta=0, val=0)
-    pg.add('variable', 'vt', sta=0, val=0)   # скільки разів спрацював таймер смужок
-    pg.add('variable', 'vm', sta=0, val=3)   # 0 спектр, 1 обране, 2 пульт, 3 ще нічого
-    pg.add('variable', 'vc', sta=0, val=0)   # 1 — грає (риски в картці живі)
-    #  таймер секунд прибрано: на залізі він не виконувався, хоч сусідній працював.
-    #  Секунди шле прошивка раз на секунду — це одна команда, дешевше за пошуки причини.
+    #  Смужки спектра й риски в картці — рідні «Progress bar»: висоту малює сам екран, прошивка
+    #  шле одне число 0..100. Так само зроблено в робочому проєкті оригінального yoRadio, де
+    #  пік-метр — два такі компоненти, і де нічого не гальмує.
+    #
+    #  Тут раніше стояв таймер екрана, що малював смужки заливками. Він не працював, і не через
+    #  малювання: **код подій узагалі не потрапляє в проєкт**. Перевірено з двох боків — у самому
+    #  редакторі список коду події «timer» порожній, а на залізі лічильник тактів стояв на нулі
+    #  при tm2.en=1. Через це мовчало все, що трималось на подіях: спад смужок, заставка, дотики,
+    #  гучність. Тому подій на сторінці немає взагалі: координати дотиків екран шле сам
+    #  («sendxy=1», кадр 0x67), решту прошивка робить командами.
+    for k in range(NBAR):
+        pg.add('progress', 'd%d' % k, x=int(round(SPX0 + k * SPSTEP)), y=SPB - SPH, w=SPW, h=SPH,
+               sta=1, bco=c565(C['BG']), pco=c565(C['ACC']), val=0)
+    for k in range(5):
+        pg.add('progress', 'cb%d' % k, x=int(round(CBX + k * 5 * K)), y=CBY - CBH, w=CBW, h=CBH,
+               sta=1, bco=c565(C['SURF']), pco=c565(C['ACC']), val=0)
 
     # компоненти відображення
     pg.add('picture', 'src', x=sx, y=sy, w=ss, h=ss, pic=ids['SRC0'])
@@ -272,55 +276,15 @@ def build(p, meta, out_dir):
            wid=vh, hig=vh, minval=0, maxval=254, val=0)
     m = meta['smb']
     pg.add('text', 'vp', x=X(270), y=Y(230) - m['asc'], w=X(306) - X(270), h=m['h'], font=m['id'], pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=6)
-    # повзунки: гучність — відсоток показує сам екран, значення — в ESP32 (рух і відпускання)
-    pg.event('vol', 'slide', 'vv.val=vol.val*100+127/254\r\ncovx vv.val,vp.txt,0,0\r\nvp.txt+="%"\r\nprinth 7E 56 01\r\nprints vol.val,2\r\nprinth 00')
-    pg.event('vol', 'up', 'printh 7E 57 01\r\nprints vol.val,2\r\nprinth 00')
-    pg.event('sk', 'up', 'printh 7E 57 02\r\nprints sk.val,2\r\nprinth 00')
-    pg.event('bp', 'up', 'printh 7E 42 01 00 00 00')
-    pg.event('bn', 'up', 'printh 7E 42 02 00 00 00')
-    # Спектр малює сам екран: ESP32 лише піднімає d0..d13, коли стало гучніше,
-    # а падіння (по 3 за кадр) і перемальовування — тут. Так по шині майже нічого не їде.
-    code = []
-    def bar(var, x, bottom, h, w, bg, fg):
-        #  Малюємо щоразу, без перевірки «чи змінилось»: Nextion не виконує вираз із двома
-        #  змінними одразу — код події мовчки уривається (перевірено на залізі: смужки
-        #  спадали, бо це до порівняння, а малювання після нього — ні). Дві заливки на
-        #  смужку коштують ≈0,1 мс, усі 38 — близько 4 мс із 50, тож економія й не потрібна.
-        code.append('if(%s.val>4)' % var); code.append('{'); code.append('%s.val=%s.val-3' % (var, var)); code.append('}')
-        code.append('vv.val=%s.val*%d' % (var, h)); code.append('vv.val=vv.val/100')
-        code.append('vq.val=%d-vv.val' % h)
-        code.append('fill %d,%d,%d,vq.val,%d' % (x, bottom - h, w, bg))
-        code.append('vq.val=%d-vv.val' % bottom)
-        code.append('fill %d,vq.val,%d,vv.val,%d' % (x, w, fg))
-    code.append('vt.val=vt.val+1')                                  # такт таймера: видно ззовні, чи він живий
-    code.append('if(vm.val==0)'); code.append('{')                  # рядок спектра зайнятий іншим — не малюємо
-    for k in range(NBAR):
-        bar('d%d' % k, int(round(SPX0 + k * SPSTEP)), SPB, SPH, SPW, c565(C['BG']), c565(C['ACC']))
-    code.append('}')
-    code.append('if(vc.val==1)'); code.append('{')
-    for k, src in enumerate((2, 5, 8, 11, 13)):                     # риски в картці — з тих самих смужок
-        bar_x = int(round(CBX + k * 5 * K))
-        code.append('vv.val=d%d.val*%d' % (src, CBH)); code.append('vv.val=vv.val/100')
-        code.append('vq.val=%d-vv.val' % CBH)
-        code.append('fill %d,%d,%d,vq.val,%d' % (bar_x, CBY - CBH, CBW, c565(C['SURF'])))
-        code.append('vq.val=%d-vv.val' % CBY)
-        code.append('fill %d,vq.val,%d,vv.val,%d' % (bar_x, CBW, c565(C['ACC'])))
-    code.append('}')
-    code.append('doevents')             # дати екрану доробити перемальовку до наступного тику
-    pg.event('tm2', 'timer', '\r\n'.join(code))
-
-    # геометрія рядка спектра — прошивці, щоб гасити його при зміні режиму
+    #  Подій на повзунках і кнопках немає навмисне: код подій у проєкт не потрапляє (див. вище).
+    #  Дотики прошивка бере з «sendxy=1» і сама рахує гучність і перемотку за геометрією нижче,
+    #  а положення повзунка ставить назад командою «vol.val=…». Щоб екран не рухав повзунок
+    #  сам і не сперечався з прошивкою, вона вимикає їм дотик командою «tsw vol,0».
+    #
+    # геометрія рядка спектра й повзунків — прошивці (єдине джерело чисел — цей файл)
     ids['SPX'] = SPX0; ids['SPTOP'] = SPB - SPH; ids['SPW'] = SPX1 - SPX0; ids['SPH'] = SPH
     ids['BGCOL'] = c565(C['BG']); ids['NBAR'] = NBAR
-
-    # Зони дотику додаємо НАОСТАНОК: при накладанні у Nextion виграє компонент із більшим
-    # номером. Коли вони лежали знизу, дотик забирали тексти й картинки над ними — і до
-    # прошивки не доходило нічого (а повзунок працював, бо він сам обробляє дотик).
-    # У режимі пульта рядок віддаємо повзунку перемотки командою «tsw tr,0».
-    pg.add('hotspot', 'tz', x=0, y=0, w=480, h=Y(182) - 8)
-    pg.add('hotspot', 'tr', x=0, y=Y(182) - 8, w=480, h=Y(207) - Y(182) + 8)
-    for z, name in ((0, 'tz'), (1, 'tr')):
-        pg.event(name, 'down', 'printh 7E 50\r\nprints tch0,2\r\nprints tch1,2\r\ntm0.en=1')
-        pg.event(name, 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch2,2\r\nprints tch3,2')
+    ids['VOLX'] = vx; ids['VOLY'] = vy; ids['VOLW'] = vw; ids['VOLH'] = vh
+    ids['SEEKX'] = kx; ids['SEEKY'] = ky; ids['SEEKW'] = kw; ids['SEEKH'] = kh
 
     return ids

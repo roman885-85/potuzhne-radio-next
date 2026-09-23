@@ -40,3 +40,11 @@
 #define NXPL_SPH 31
 #define NXPL_BGCOL 2146
 #define NXPL_NBAR 14
+#define NXPL_VOLX 60
+#define NXPL_VOLY 287
+#define NXPL_VOLW 336
+#define NXPL_VOLH 28
+#define NXPL_SEEKX 114
+#define NXPL_SEEKY 246
+#define NXPL_SEEKW 252
+#define NXPL_SEEKH 28

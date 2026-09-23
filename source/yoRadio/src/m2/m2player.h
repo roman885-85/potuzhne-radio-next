@@ -55,6 +55,9 @@ class Player {
     void _row(bool force);
     void _vol(bool force);
     void _spectrum();
+    void _cardBars(bool on);      /* риски в картці: ті самі смужки, лише нижчі */
+    void _volFromX(int16_t x);    /* гучність із координати дотику (повзунок веде прошивка) */
+    bool _bars = false;
 };
 
 extern Player P;

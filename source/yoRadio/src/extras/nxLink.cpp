@@ -366,6 +366,12 @@ namespace NxLink {
       for (uint8_t i = 0; i < 7; i++) m2::nxZoneCnt[i] = 0;
       return true;
     }
+    if (!strcmp(a, "touches")) {
+      /*  Перевірка сенсора на відстані: власник торкається екрана, ми читаємо числа.  */
+      char b[160]; nextion.touches(b, sizeof b);
+      telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
     if (!strcmp(a, "perf")) {
       char b[200]; nextion.perf(b, sizeof b);
       telnet.printf(cid, "##NX#\t%s\n> ", b);
