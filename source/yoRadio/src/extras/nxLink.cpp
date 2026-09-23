@@ -384,6 +384,11 @@ namespace NxLink {
       telnet.printf(cid, "##NX#\tзаставка на %d мс\n> ", ms);
       return true;
     }
+    if (!strcmp(a, "vol")) {
+      char b[120]; m2::P.volInfo(b, sizeof b);
+      telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
     if (!strcmp(a, "bars")) {
       char b[220]; m2::P.barsInfo(b, sizeof b);
       telnet.printf(cid, "##NX#\t%s\n> ", b);

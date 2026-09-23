@@ -56,38 +56,16 @@ PY
 
 echo
 echo "=== 4. ручка гучності доїжджає? ==="
-#  Ставимо гучність стрибком і дивимось, чи з'являються проміжні значення на самому екрані.
-#  Якщо анімації немає, друге зняття вже дорівнює цілі.
-$PY - <<'PY'
-import subprocess, re, sys, time
-def rc(*cmds):
-    return subprocess.run(['build/venv/bin/python', 'tools/device/rc.py', *cmds],
-                          capture_output=True, text=True).stdout
-def volval():
-    o = rc('nx cmd get vol.val')
-    m = re.search(r'5 байт: q(.*)', o)
-    if not m: return None
-    b = m.group(1); out = []; i = 0
-    while i < len(b):
-        if b[i:i+2] == '\\x': out.append(int(b[i+2:i+4], 16)); i += 4
-        else: out.append(ord(b[i])); i += 1
-    return out[0] | (out[1] << 8) if len(out) >= 2 else None
-rc('vol 5'); time.sleep(1.2)
-start = volval()
-rc('vol 40')
-seen = []
-for i in range(8):
-    v = volval()
-    if v is not None: seen.append(v)
-    time.sleep(0.05)
-uniq = sorted(set(seen))
-ok = len(uniq) > 2
-print('%-26s %s  від %s через %s' % ('ручка гучності', 'ГАРАЗД' if ok else 'ЗЛАМАНО', start, uniq[:6]))
-sys.exit(0 if ok else 1)
-PY
-[ $? -ne 0 ] && bad=1
+#  Рахує сама прошивка: читати `vol.val` ззовні не можна — кожне читання зупиняє драйвер
+#  і коштує майже секунду, а весь шлях ручки — чверть секунди. Секундною лінійкою мить не
+#  зміряти, і перша версія цієї перевірки саме тому й брехала «зламано».
+S0="$($RC 'nx vol' 2>&1 | tr -d '\000' | grep -ao 'кроків [0-9]*' | awk '{print $2}')"
+$RC 'vol 5' >/dev/null 2>&1; sleep 1
+$RC 'vol 40' >/dev/null 2>&1; sleep 1
+S1="$($RC 'nx vol' 2>&1 | tr -d '\000' | grep -ao 'кроків [0-9]*' | awk '{print $2}')"
+D=$(( ${S1:-0} - ${S0:-0} ))
+[ "$D" -ge 3 ] && say "ручка гучності" ГАРАЗД "$D кроків на шляху" || say "ручка гучності" ЗЛАМАНО "кроків $D (стрибає)"
 
-echo
 echo "=== 5. радіо видно програмам? ==="
 H="$(curl -s -m 5 http://$IP/api/hello)"
 echo "$H" | grep -q '"potuzhne":1' && say "/api/hello" ГАРАЗД "$(echo "$H" | cut -c1-70)" || say "/api/hello" ЗЛАМАНО "${H:-немає відповіді}"

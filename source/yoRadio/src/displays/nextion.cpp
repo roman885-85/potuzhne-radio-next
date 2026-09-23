@@ -13,6 +13,7 @@
 #include "../m2/m2radio.h"
 #include "../m2/nxboot_ids.h"
 #include "../extras/yoExtras.h"
+#include "../extras/yoSermons.h"
 
 HardwareSerial hSerial(1);            /* UART1 — екран (extras/nxLink теж ним користується) */
 
@@ -390,6 +391,7 @@ void Nextion::begin(bool dummy){
   needBk = false;
   extq = xQueueCreate(12, sizeof(ExtCmd));
   extras.begin();
+  sermons.begin();                   /* список проповідей уже може лежати на картці */
   m2::nxSink = &sink;
   if(extras.s.splashOff) rawSend("page ui"); else bootAnim = true;
   /*  пріоритет 1 (як головний цикл): екрану не можна відбирати час у мережі й звуку  */

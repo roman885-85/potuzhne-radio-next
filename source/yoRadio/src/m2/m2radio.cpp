@@ -10,6 +10,7 @@
 #include "../core/network.h"
 #include "../core/timekeeper.h"
 #include "../extras/yoExtras.h"
+#include "../extras/yoSermons.h"   /* список проповідей — на картці пам'яті */
 #include "../extras/yoBt.h"
 #include "../extras/yoBuild.h"
 
@@ -89,21 +90,28 @@ bool        remote(){ return player.remoteStationName; }
 bool        speaker(){ return yobt::active(); }
 const char* speakerName(){ return yobt::peer(); }
 
-/*  ---- проповіді (доповнення ще переноситься) ---- */
-bool        sermonOn(){ return false; }
-const char* sermonTitle(){ return ""; }
-const char* sermonPreacher(){ return ""; }
-const char* sermonDate(){ return ""; }
-void        sermonRel(int8_t){}
-uint16_t    sermonsCount(){ return 0; }
-bool        sermonsLoading(){ return false; }
-uint16_t    sermonsLoaded(){ return 0; }
-const char* sermonsError(){ return "список проповідей — у наступній версії"; }
-uint32_t    sermonsVersion(){ return 0; }
-int16_t     sermonsPlaying(){ return -1; }
-bool        sermonAt(uint16_t, SermonInfo&){ return false; }
-void        sermonsFetch(){}
-bool        sermonsPlay(uint16_t){ return false; }
+/*  ---- проповіді ----
+    Список лежить на картці пам'яті, а не в пам'яті: PSRAM тут немає, а архів — понад
+    півтисячі записів (див. extras/yoSermons.h).  */
+bool        sermonOn(){ return sermons.playing() >= 0 && player.remoteStationName; }
+const char* sermonTitle(){ const SermonRec* r = sermons.current(); return r ? r->title : ""; }
+const char* sermonPreacher(){ const SermonRec* r = sermons.current(); return r ? r->preacher : ""; }
+const char* sermonDate(){ const SermonRec* r = sermons.current(); return r ? r->date : ""; }
+void        sermonRel(int8_t d){ sermons.playRel(d); }
+uint16_t    sermonsCount(){ return sermons.count(); }
+bool        sermonsLoading(){ return sermons.loading(); }
+uint16_t    sermonsLoaded(){ return sermons.loadedSoFar(); }
+const char* sermonsError(){ return sermons.error(); }
+uint32_t    sermonsVersion(){ return sermons.version(); }
+int16_t     sermonsPlaying(){ return sermons.playing(); }
+bool        sermonAt(uint16_t i, SermonInfo& out){
+  const SermonRec* r = sermons.at(i);
+  if(!r) return false;
+  out.title = r->title; out.preacher = r->preacher; out.date = r->date; out.dur = r->dur;
+  return true;
+}
+void        sermonsFetch(){ sermons.fetch(); }
+bool        sermonsPlay(uint16_t i){ return sermons.play(i); }
 
 uint32_t durSec(){ return sdMode() ? player.getAudioFileDuration() : 0; }
 uint32_t posSec(){ return sdMode() ? player.getAudioCurrentTime() : 0; }

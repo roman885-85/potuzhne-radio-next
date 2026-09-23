@@ -348,11 +348,12 @@ void Player::_vol(bool force){
     /*  Крок прив'язаний до часу, а не до проходу. Спершу я рухав ручку на третину відстані
         за виклик — і не побачив анімації взагалі: гучність малюється кожним проходом задачі
         екрана, тобто понад сто разів за секунду, і весь шлях укладався в 30 мс.  */
-    if(now - _volAnimT < 30) return;
+    if(now - _volAnimT < 40) return;
     _volAnimT = now;
     const int32_t d = (int32_t)want - (int32_t)_volShown;
-    const int32_t step = d > 0 ? (d + 3) / 4 : (d - 3) / 4;   /* чверть відстані за 30 мс */
+    const int32_t step = d > 0 ? (d + 4) / 5 : (d - 4) / 5;   /* п'ята частина за 40 мс ≈ 250 мс шлях */
     _volShown = (uint16_t)((int32_t)_volShown + step);
+    _volSteps++;                      /* для перевірки: скільки кроків зробила ручка */
   }else return;
   if(_hold[0] && (int32_t)(millis() - _hold[0]) < 0) return;   /* повзунок веде палець */
   nxSet("vol", "val", _volShown);
@@ -446,6 +447,14 @@ void Player::render(){
 
 /*  «nx bars» — скільки смужок, де вони і які зараз. Інакше «бачу десять із чотирнадцяти»
     не перевірити: знімок екрана Nextion не віддає, а «nx shot» ловить лише один кадр.  */
+/*  «nx vol» — скільки кроків зробила ручка гучності. Перевіряти це читанням `vol.val` ззовні
+    не можна: кожне читання зупиняє драйвер і коштує майже секунду, а весь шлях ручки —
+    чверть секунди. Лічильник усередині не залежить від того, як його міряють.  */
+void Player::volInfo(char* out, size_t cap){
+  snprintf(out, cap, "показано %u, ціль %u, кроків %lu",
+           (unsigned)_volShown, (unsigned)radio::volume(), (unsigned long)_volSteps);
+}
+
 void Player::barsInfo(char* out, size_t cap){
   int k = snprintf(out, cap, "смужок %d, x від %d крок %d ширина %d, висоти:",
                    (int)NXPL_NBAR, (int)NXPL_SPX, (int)NXPL_SPSTEP, (int)NXPL_SPBW);
