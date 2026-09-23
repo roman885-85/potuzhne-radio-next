@@ -1,4 +1,5 @@
 /*  Проповіді: список на картці пам'яті — див. yoSermons.h, чому не в пам'яті.  */
+#include "../core/options.h"     /* першим: від нього залежить, який декодер бачить player.h */
 #include "yoSermons.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -75,16 +76,21 @@ void YoSermons::begin(){
 
 const SermonRec* YoSermons::at(uint16_t i){
   if(i >= _n) return nullptr;
-  if(_bufIdx == (int32_t)i) return &_buf;           /* той самий запис підряд — не чіпаємо картку */
+  if(_winFrom >= 0 && (int32_t)i >= _winFrom && (int32_t)i < _winFrom + _winN)
+    return &_win[i - _winFrom];                     /* уже у вікні — картку не чіпаємо */
   if(!sdman.ready) return nullptr;
+  /*  Читаємо цілу дюжину навколо потрібного: одне звертання до картки замість дванадцяти.  */
+  int32_t from = (int32_t)i - 2; if(from < 0) from = 0;
+  uint8_t want = WIN;
+  if(from + want > _n) want = (uint8_t)(_n - from);
   File f = sdman.open(SERMON_FILE, "r");
   if(!f) return nullptr;
-  bool ok = f.seek((uint32_t)i * sizeof(SermonRec)) &&
-            f.read((uint8_t*)&_buf, sizeof(SermonRec)) == sizeof(SermonRec);
+  const bool ok = f.seek((uint32_t)from * sizeof(SermonRec)) &&
+                  f.read((uint8_t*)_win, (size_t)want * sizeof(SermonRec)) == (int)(want * sizeof(SermonRec));
   f.close();
-  if(!ok) return nullptr;
-  _bufIdx = (int32_t)i;
-  return &_buf;
+  if(!ok){ _winFrom = -1; _winN = 0; return nullptr; }
+  _winFrom = from; _winN = want;
+  return &_win[i - from];
 }
 
 void YoSermons::fetch(){
@@ -210,7 +216,7 @@ done:
   Serial.printf("##SERM#\tпроповідей %u за %u мс %s\n", n, (unsigned)(millis() - t0), err);
   if(n) s->_n = n;
   s->_err = err;
-  s->_bufIdx = -1;
+  s->_winFrom = -1; s->_winN = 0;
   s->_ver++;
   s->_loading = false;
   vTaskDelete(nullptr);
@@ -227,7 +233,7 @@ bool YoSermons::play(uint16_t i){
   }
   snprintf(player.burl, sizeof(player.burl), "%s%s", SERMON_SITE, it->url);
   _playing = (int16_t)i;
-  player.sendCommand({PR_PLAY, -(int)(i + 1)});
+  player.sendCommand({PR_BURL, 0});          /* зіграти те, що поклали в burl */
   return true;
 }
 

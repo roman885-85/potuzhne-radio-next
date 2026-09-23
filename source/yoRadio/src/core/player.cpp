@@ -182,11 +182,7 @@ void Player::loop() {
         break;
       }
       case PR_BURL: {
-      #ifdef MQTT_ROOT_TOPIC
-        if(strlen(burl)>0){
-          browseUrl();
-        }
-      #endif
+        if(strlen(burl)>0) browseUrl();
         break;
       }
           
@@ -249,7 +245,8 @@ void Player::_play(uint16_t stationId) {
   };
 }
 
-#ifdef MQTT_ROOT_TOPIC
+/*  Зіграти те, що лежить у burl. Було під MQTT, але тим самим шляхом ідуть проповіді —
+    тож потрібно завжди.  */
 void Player::browseUrl(){
   _hasError=false;
   remoteStationName = true;
@@ -273,7 +270,6 @@ void Player::browseUrl(){
   }
   //memset(burl, 0, MQTT_BURL_SIZE);
 }
-#endif
 
 void Player::prev() {
   uint16_t lastStation = config.lastStation();
