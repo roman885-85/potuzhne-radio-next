@@ -28,8 +28,9 @@ def shot(page, scroll):
     """Один прохід стенда: сторінка з заданою прокруткою → Image 480×320."""
     cmds = os.path.join(ROOT, 'build', 'nx', 'cmds', 'strip_%s_%d.txt' % (page, scroll))
     png = os.path.join(ROOT, 'build', 'nx', 'shots', 'strip_%s_%d.png' % (page, scroll))
+    env = dict(os.environ, NX_FLATBG='1')     # тло рівне: перехід угорі інакше запікається в кожен прохід
     r = subprocess.run([os.path.join(ROOT, 'build', 'nxhost', 'nxhost'), 'm:%s:%d' % (page, scroll), cmds],
-                       capture_output=True, check=True)
+                       capture_output=True, check=True, env=env)
     got = scroll
     for l in r.stderr.decode('utf-8', 'replace').splitlines():
         if l.startswith('scroll='): got = int(l[7:])
@@ -40,27 +41,41 @@ def shot(page, scroll):
 
 
 def build(page, step=STEPV, maxv=1600):
-    """Стрічка сторінки. Кінець — коли прокрутка вперлась і кадр повторився."""
+    """Стрічка сторінки. Кінець — коли прокрутка вперлась і кадр повторився.
+
+    З кожного проходу беремо не все вікно, а середину: рядок, що заїхав під шапку, екран
+    малює обрізаним, і цей обріз інакше запікається в стрічку смугою на кожній склейці.
+    Тому відкидаємо по TRIM точок зверху (висота рядка з запасом), а кроком робимо саме
+    стільки, скільки лишилось, — проходи тоді стикуються рівно.
+    """
+    TRIM = 48                                   # запас: найвищий рядок меню — 44 точки
     out = os.path.join(ROOT, 'build', 'nx', 'strips')
     os.makedirs(out, exist_ok=True)
-    frames, prev = [], None
-    sc = 0
+    body = CONT - TRIM                          # скільки корисного з проходу
+    stepv = int(body / K)                        # той самий крок, але у віртуальних точках
+    frames, sc, prev = [], 0, None
     while sc <= maxv:
         im, got = shot(page, sc)
-        part = im.crop((0, HDR, 480, 320))
-        if frames and got == frames[-1][0]:
-            break                                   # прокрутка вперлась у кінець — стрічка скінчилась
-        frames.append((got, part))
-        if got < sc:                                # менше, ніж просили: це вже кінець
+        if prev is not None and got == prev:
+            break                               # прокрутка вперлась у кінець
+        frames.append((got, im))
+        prev = got
+        if got < sc:
             break
-        sc += step
-    h = int(round((frames[-1][0]) * K)) + CONT
+        sc += stepv
+    if not frames:
+        raise SystemExit('немає кадрів для %s' % page)
+    h = int(round(frames[-1][0] * K)) + CONT
     strip = Image.new('RGB', (480, h), (0, 0, 0))
-    for sc, part in frames:
-        strip.paste(part, (0, int(round(sc * K))))
+    for i, (got, im) in enumerate(frames):
+        y = int(round(got * K))
+        if i == 0:
+            strip.paste(im.crop((0, HDR, 480, 320)), (0, 0))          # перший — цілком, там нічого не обрізано
+        else:
+            strip.paste(im.crop((0, HDR + TRIM, 480, 320)), (0, y + TRIM))
     p = os.path.join(out, '%s.png' % page)
     strip.save(p)
-    print('%s: %d проходів, стрічка 480×%d → %s' % (page, len(frames), h, p))
+    print('%s: %d проходів, стрічка 480x%d -> %s' % (page, len(frames), h, p))
     return p, h
 
 

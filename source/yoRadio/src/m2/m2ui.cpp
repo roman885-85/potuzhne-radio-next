@@ -9,6 +9,8 @@ volatile uint32_t g_m2Frames = 0;
 
 namespace m2 {
 
+bool flatBg = false;      /* стенд tools/nxhost вмикає, щоб пекти стрічку на рівному тлі */
+
 Menu M;
 
 /*  з m2menu.cpp: стан мережі й час для шапки  */
@@ -895,7 +897,11 @@ void Menu::_drawPage(Gfx& g, Page* p, int16_t dx, bool overlays){
   Rect s0 = g.narrow(dx, 0, SW, SH);
   if(g.clipRect().empty()){ g.restore(s0); return; }
   g.origin(dx, 0);
-  g.vgrad(0, 0, SW, 90, C_BGTOP, C_BG);
+  /*  Плавний перехід угорі — частина нерухомого тла. Коли сторінку печуть у стрічку
+      (tools/nextion/strip.py), тло має бути рівним: інакше перехід запікається в кожен
+      прохід і на склейках лишаються темні смуги.  */
+  if(flatBg) g.fill(0, 0, SW, 90, C_BG);
+  else       g.vgrad(0, 0, SW, 90, C_BGTOP, C_BG);
   g.fill(0, 90, SW, SH - 90, C_BG);
   Rect s1 = g.narrow(0, HDR, SW, CH);
   g.origin(dx, HDR - p->scroll);

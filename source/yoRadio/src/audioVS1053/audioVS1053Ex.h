@@ -248,9 +248,6 @@ private:
     const char volumetable[22]={   0,50,60,65,70,75,80,82,84,86,
                                   88,90,91,92,93,94,95,96,97,98,99,100}; //22 elements
     uint8_t  vuLeft, vuRight;
-    /*  Чи готова мікросхема відповідати просто зараз. Читання спектра інакше чекає DREQ
-        і тримає головний цикл, який годує декодер, — на частому опитуванні це чути.  */
-    bool     ready() const { return digitalRead(dreq_pin) == HIGH; }
 protected:
     inline void DCS_HIGH() {(dcs_pin&0x20) ? GPIO.out1_w1ts.data = 1 << (dcs_pin - 32) : GPIO.out_w1ts = 1 << dcs_pin;}
     inline void DCS_LOW()  {(dcs_pin&0x20) ? GPIO.out1_w1tc.data = 1 << (dcs_pin - 32) : GPIO.out_w1tc = 1 << dcs_pin;}
@@ -347,6 +344,9 @@ public:
     uint16_t get_VUlevel(uint16_t dimension);
     void     computeVUlevel();
     /* SPECTRUM ANALYZER (плагін VLSI: 14 смуг просто під час декодування) */
+    /*  Чи готова мікросхема відповідати просто зараз. Читання спектра інакше чекає DREQ
+        і тримає головний цикл, який годує декодер, — на частому опитуванні це чути в звуці.  */
+    bool     ready() const { return digitalRead(dreq_pin) == HIGH; }
     uint8_t  readSpectrum(uint8_t* cur, uint8_t* peak = nullptr);   // скільки смуг прочитано
     /*  Режим колонки Bluetooth: віддаємо в чип готові відліки (WAV-заголовок, далі PCM).
         Тут немає ні потоку, ні декодера — лише шина SDI з оглядкою на DREQ.  */

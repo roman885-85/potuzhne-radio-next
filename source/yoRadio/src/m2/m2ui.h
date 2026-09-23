@@ -28,6 +28,8 @@ extern volatile uint32_t g_m2Frames;
 
 namespace m2 {
 
+extern bool flatBg;       /* рівне тло замість переходу — для випікання стрічки меню */
+
 class Page {
   public:
     virtual ~Page(){}
