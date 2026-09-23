@@ -295,11 +295,10 @@ void Player::_row(bool force){
   _sRow = r; _mode = m;
   if(modeChanged){
     char c[8];
-    /*  Смужки спектра — рідні компоненти екрана: рядок зайняли обране чи пульт — просто ховаємо.  */
-    for(uint8_t i = 0; i < 14; i++){
-      snprintf(c, sizeof(c), "d%u", i);
-      if(m != 0){ nxSet(c, "val", 0); _spec[i] = 0; }
-      nxVis(c, m == 0);
+    /*  Рядок зайняли обране чи пульт — стерти смужки одним прямокутником.  */
+    if(m != 0){
+      nx("fill %d,%d,%d,%d,%u", NXPL_SPX, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
+      for(uint8_t i = 0; i < 14; i++) _spec[i] = 0;
     }
     for(uint8_t i = 0; i < 6; i++){
       snprintf(c, sizeof(c), "f%u", i); nxVis(c, m == 1);
@@ -346,14 +345,25 @@ void Player::_vol(bool force){
 /*  Смужки опускає сам екран (таймер tm2, по 3 за кадр 40 мс). Звідси йде тільки підйом:
     тримаємо в пам'яті ту саму модель падіння й шлемо d<k>, лише коли стало гучніше.
     Через це в тиші по шині не йде нічого.  */
+/*  Одна смужка: дві заливки — темний «порожній» верх і яскравий низ за висотою v (0..100).
+    Малюємо заливками, а не компонентом-смужкою: у Progress bar кольори задаються лише в
+    редакторі, а він їх не переносить — на екрані смужки виходили невидимі. Тут колір наш,
+    і це та сама механіка, якою малюється все меню.  */
+static void barFill(int16_t x, int16_t top, int16_t w, int16_t h, uint8_t v, uint16_t bg, uint16_t fg){
+  const int16_t fh = (int16_t)((int32_t)v * h / 100);
+  if(fh < h) nx("fill %d,%d,%d,%d,%u", x, top, w, h - fh, bg);
+  if(fh > 0) nx("fill %d,%d,%d,%d,%u", x, top + h - fh, w, fh, fg);
+}
+
 /*  Риски в картці — ті самі п'ять смужок, що й у рядку спектра, лише нижчі.  */
 void Player::_cardBars(bool on){
-  char c[8];
   static const uint8_t SRC[5] = { 2, 5, 8, 11, 13 };
   for(uint8_t k = 0; k < 5; k++){
-    snprintf(c, sizeof(c), "cb%u", k);
-    nxSet(c, "val", on ? _spec[SRC[k]] : 0);
-    nxVis(c, on);
+    const uint8_t v = on ? _spec[SRC[k]] : 0;
+    if(v == _cbShown[k] && _bars == on) continue;
+    _cbShown[k] = v;
+    barFill(NXPL_CBX + k * NXPL_CBSTEP, NXPL_CBY - NXPL_CBH, NXPL_CBW, NXPL_CBH,
+            v, NXPL_SURFCOL, NXPL_ACCCOL);
   }
   _bars = on;
 }
@@ -379,7 +389,7 @@ void Player::_spectrum(){
     v = (uint8_t)(v / 4 * 4);
     if(v == _spec[i]) continue;
     _spec[i] = v;
-    snprintf(c, sizeof(c), "d%u", i); nxSet(c, "val", v);
+    barFill(NXPL_SPX + i * NXPL_SPSTEP, NXPL_SPTOP, NXPL_SPBW, NXPL_SPH, v, NXPL_BGCOL, NXPL_ACCCOL);
   }
   if(_bars) _cardBars(true);
 }

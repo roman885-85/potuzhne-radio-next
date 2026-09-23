@@ -284,6 +284,11 @@ def build(p, meta, out_dir):
     # геометрія рядка спектра й повзунків — прошивці (єдине джерело чисел — цей файл)
     ids['SPX'] = SPX0; ids['SPTOP'] = SPB - SPH; ids['SPW'] = SPX1 - SPX0; ids['SPH'] = SPH
     ids['BGCOL'] = c565(C['BG']); ids['NBAR'] = NBAR
+    ids['SPBW'] = SPW                      # ширина однієї смужки
+    ids['SPSTEP'] = int(round(SPSTEP))     # крок між смужками
+    ids['ACCCOL'] = c565(C['ACC'])         # колір заповнення
+    ids['CBX'] = CBX; ids['CBY'] = CBY; ids['CBW'] = CBW; ids['CBH'] = CBH
+    ids['CBSTEP'] = int(round(5 * K)); ids['SURFCOL'] = c565(C['SURF'])
     ids['VOLX'] = vx; ids['VOLY'] = vy; ids['VOLW'] = vw; ids['VOLH'] = vh
     ids['SEEKX'] = kx; ids['SEEKY'] = ky; ids['SEEKW'] = kw; ids['SEEKH'] = kh
 

@@ -40,6 +40,15 @@
 #define NXPL_SPH 31
 #define NXPL_BGCOL 2146
 #define NXPL_NBAR 14
+#define NXPL_SPBW 19
+#define NXPL_SPSTEP 31
+#define NXPL_ACCCOL 59019
+#define NXPL_CBX 414
+#define NXPL_CBY 119
+#define NXPL_CBW 4
+#define NXPL_CBH 29
+#define NXPL_CBSTEP 7
+#define NXPL_SURFCOL 6405
 #define NXPL_VOLX 60
 #define NXPL_VOLY 287
 #define NXPL_VOLW 336

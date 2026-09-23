@@ -58,6 +58,7 @@ class Player {
     void _cardBars(bool on);      /* риски в картці: ті самі смужки, лише нижчі */
     void _volFromX(int16_t x);    /* гучність із координати дотику (повзунок веде прошивка) */
     bool _bars = false;
+    uint8_t _cbShown[5] = { 0 };   /* що вже намальовано в рисках картки */
 };
 
 extern Player P;
