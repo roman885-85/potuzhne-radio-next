@@ -11,7 +11,7 @@
 
 namespace NxLink {
   bool console(const char* line, uint8_t cid);        // true — команду оброблено
-  bool startUpload(const char* url, uint32_t baud, uint8_t cid);
+  bool startUpload(const char* url, uint32_t baud, uint8_t cid, bool v1 = false);
   bool busy();
   const char* lastInfo();                            // відповідь connect: "comok 1,…,NX4832F035_011R,…"
   const char* status();                              // стан останньої заливки для веба/консолі

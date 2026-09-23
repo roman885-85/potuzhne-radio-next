@@ -19,7 +19,7 @@ namespace {
   char      st[96] = "простій";
   volatile bool running = false;
 
-  struct Job { char url[200]; uint32_t baud; uint8_t cid; uint8_t kind; };   // kind: 0 — заливка .tft, 1 — команди з файлу
+  struct Job { char url[200]; uint32_t baud; uint8_t cid; uint8_t kind; bool v1 = false; };   // kind: 0 — заливка .tft, 1 — команди з файлу
 
   void say(uint8_t cid, const char* fmt, ...) {
     char b[200]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
@@ -118,7 +118,11 @@ namespace {
       say(cid, "файл %d байт, заливаю на %lu бод", total, (unsigned long)j->baud);
 
       send("sleep=0"); send("dim=100"); delay(60); flushIn();
-      char cmd[48]; snprintf(cmd, sizeof cmd, "whmi-wris %d,%lu,1", total, (unsigned long)j->baud);
+      /*  Після пошкодження проєкту екран може приймати лише старий протокол (v1.0,
+          whmi-wri) — тоді «nx upload <url> <бод> v1».  */
+      char cmd[48];
+      if (j->v1) snprintf(cmd, sizeof cmd, "whmi-wri %d,%lu,0", total, (unsigned long)j->baud);
+      else       snprintf(cmd, sizeof cmd, "whmi-wris %d,%lu,1", total, (unsigned long)j->baud);
       send(cmd);
       hSerial.flush();
       delay(60);
@@ -269,7 +273,7 @@ namespace NxLink {
   const char* lastInfo() { return info; }
   const char* status() { return st; }
 
-  bool startUpload(const char* url, uint32_t baud, uint8_t cid) {
+  bool startUpload(const char* url, uint32_t baud, uint8_t cid, bool v1) {
     if (running || !url || !*url) return false;
     if (baud == 0) baud = 115200;
     running = true;
@@ -282,7 +286,7 @@ namespace NxLink {
     player.sendCommand({PR_STOP, 0});
     delay(80);
     Job* j = new Job();
-    strlcpy(j->url, url, sizeof j->url); j->baud = baud; j->cid = cid; j->kind = 0;
+    strlcpy(j->url, url, sizeof j->url); j->baud = baud; j->cid = cid; j->kind = 0; j->v1 = v1;
     snprintf(st, sizeof st, "починаю");
     if (xTaskCreatePinnedToCore(uploadTask, "nxup", 8192, j, 2, NULL, 0) != pdPASS) { delete j; finish(false); return false; }
     return true;
@@ -317,9 +321,9 @@ namespace NxLink {
       return true;
     }
     if (!strncmp(a, "upload ", 7)) {
-      char url[200]; unsigned long baud = 0;
-      if (sscanf(a + 7, "%199s %lu", url, &baud) < 1) { telnet.printf(cid, "##NX#\tnx upload <url> [бод]\n> "); return true; }
-      telnet.printf(cid, startUpload(url, baud, cid) ? "##NX#\tзаливку почато\n> " : "##NX#\tне вдалося почати\n> ");
+      char url[200], mode[8] = ""; unsigned long baud = 0;
+      if (sscanf(a + 7, "%199s %lu %7s", url, &baud, mode) < 1) { telnet.printf(cid, "##NX#\tnx upload <url> [бод] [v1]\n> "); return true; }
+      telnet.printf(cid, startUpload(url, baud, cid, !strcmp(mode, "v1")) ? "##NX#\tзаливку почато\n> " : "##NX#\tне вдалося почати\n> ");
       return true;
     }
     if (!strncmp(a, "touch ", 6)) {
@@ -365,6 +369,12 @@ namespace NxLink {
     if (!strcmp(a, "perf")) {
       char b[200]; nextion.perf(b, sizeof b);
       telnet.printf(cid, "##NX#\t%s\n> ", b);
+      return true;
+    }
+    if (!strncmp(a, "raw", 3)) {
+      int sec = 10; sscanf(a + 3, "%d", &sec);
+      nextion.raw(sec > 0 && sec < 120 ? sec : 10);
+      telnet.printf(cid, "##NX#\tпишу сирі байти від екрана %d с\n> ", sec);
       return true;
     }
     if (!strcmp(a, "test")) {

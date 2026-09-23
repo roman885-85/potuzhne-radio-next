@@ -24,7 +24,8 @@ namespace {
       приходить лише помилка) — на рідних сторінках команд мало, а чекання на підтвердження
       коштувало простою задачі екрана.
       Екран перезавантажився — він сам шле 0x88, і ми вмикаємо потрібні режими наново.  */
-  uint8_t  burst = 0;                 /* скільки команд поспіль без паузи */
+  uint16_t burstBytes = 0;            /* байтів від останньої синхронізації з екраном */
+  volatile bool syncWait = false, syncGot = false;
   uint32_t errors = 0; uint8_t lastErr = 0;
   bool     needBk = true;             /* треба (знову) задати bkcmd=2 */
   QueueHandle_t extq = nullptr;       /* команди з інших задач */
@@ -44,6 +45,7 @@ namespace {
   uint32_t pfCmds = 0, pfBytes = 0, pfBusyUs = 0, pfMaxUs = 0, pfT0 = 0;   /* nx perf */
   volatile bool shotReq = false;
   volatile bool reinit = false;       /* екран стартував заново — показати сторінку з нуля */
+  volatile uint32_t rawUntil = 0;     /* «nx raw»: писати в консоль усе, що шле екран */
   volatile bool askWait = false;      /* Nextion::ask(): чекаємо число від екрана */
   volatile int32_t askVal = 0;
   volatile bool askGot = false;
@@ -52,6 +54,9 @@ namespace {
   uint32_t splashUntil = 0;           /* показ заставки на прохання (кнопка в меню) */
 
   void rxByte(uint8_t c){
+    /*  Сирий запис усього, що йде з екрана: єдиний спосіб побачити, чи доходять кадри
+        дотиків і які саме (дотик на екрані працює, а прошивка його не бачить).  */
+    if(rawUntil && (int32_t)(millis() - rawUntil) < 0) Serial.printf("##NXR#\t%02X\n", c);
     switch(rst){
       case RX_IDLE:
         if(c == 0x7E){ rst = RX_TOUCH; rlen = 0; }
@@ -75,6 +80,7 @@ namespace {
         if(rbuf[0] == 0x71 && rlen < 5){ rbuf[rlen++] = c; break; }   /* −1 = FF FF FF FF, не термінатор */
         if(c == 0xFF){
           if(++ffs == 3){
+            if(syncWait && rbuf[0] == 0x71){ syncGot = true; rst = RX_IDLE; rlen = 0; ffs = 0; break; }
             if(askWait && rbuf[0] == 0x71 && rlen >= 5){
               askVal = (int32_t)((uint32_t)rbuf[1] | ((uint32_t)rbuf[2] << 8) | ((uint32_t)rbuf[3] << 16) | ((uint32_t)rbuf[4] << 24));
               askGot = true;
@@ -112,7 +118,20 @@ namespace {
           через це стояли годинник і дотики. Тепер підтверджень не просимо, а сплеск
           (перший показ сторінки) розводимо паузами, щоб не переповнити буфер екрана.  */
       if(needBk){ needBk = false; rawSend("bkcmd=2"); }
-      if(++burst >= 8){ burst = 0; pump(); vTaskDelay(1); }
+      /*  Приймальний буфер екрана — 1024 байти, і при переповненні він, за документацією,
+          викидає ВСІ накопичені команди. Сторінка плеєра шле десятки команд і туди не
+          впирається, а меню — сотні, і саме там виходило сміття на екрані (у текстах було
+          видно шматки самих команд). Тому кожні півкілобайта зупиняємось і чекаємо, доки
+          екран розгребе чергу: питаємо в нього дрібницю й дочікуємось відповіді.  */
+      burstBytes += strlen(s) + 3;
+      if(burstBytes >= 512){
+        burstBytes = 0;
+        syncWait = true; syncGot = false;
+        rawSend("get sys0");
+        const uint32_t t0 = millis();
+        while(!syncGot && millis() - t0 < 300){ pump(); vTaskDelay(1); }
+        syncWait = false;
+      }
       rawSend(s);
       pfCmds++; pfBytes += strlen(s) + 3;
       if(mirror){ Serial.print("##NXC#\t"); Serial.println(s); }
@@ -445,6 +464,8 @@ void Nextion::selftest(){
 
   Serial.printf("##NXT#\tКІНЕЦЬ: зламано %u\n", (unsigned)bad);
 }
+
+void Nextion::raw(uint16_t sec){ rawUntil = millis() + (uint32_t)sec * 1000; }
 
 void Nextion::dump(){
   static const char* const TXT[] = { "nm", "l1", "l2", "br", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp", "ini" };

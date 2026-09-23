@@ -223,9 +223,6 @@ def build(p, meta, out_dir):
     pg.add('variable', 'vc', sta=0, val=0)   # 1 — грає (риски в картці живі)
     #  таймер секунд прибрано: на залізі він не виконувався, хоч сусідній працював.
     #  Секунди шле прошивка раз на секунду — це одна команда, дешевше за пошуки причини.
-    # зони дотику: усе вище рядка (0), третій рядок (1)
-    pg.add('hotspot', 'tz', x=0, y=0, w=480, h=Y(182) - 8)
-    pg.add('hotspot', 'tr', x=0, y=Y(182) - 8, w=480, h=Y(207) - Y(182) + 8)
 
     # компоненти відображення
     pg.add('picture', 'src', x=sx, y=sy, w=ss, h=ss, pic=ids['SRC0'])
@@ -249,8 +246,9 @@ def build(p, meta, out_dir):
            pco=c565(C['TXT2']), sta=1, bco=c565(C['SURF2']), xcen=0, ycen=0, txt='', txt_maxl=40)
     pg.add('picture', 'pb', x=X(286) - 24, y=Y(79) - 24, w=48, h=48, pic=ids['PLAYBTN'])
     # годинник
-    pg.add('text', 'ck', **tbox('clock', 12, 168, X(118) - X(12)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='--:--', txt_maxl=8)
-    pg.add('text', 'sc', **tbox('title', 124, 168, X(150) - X(124)), pco=c565(C['TXT2']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='', txt_maxl=4)
+    #  між годинником і секундами лишаємо помітний проміжок: 9 точок на екрані зливаються в одне
+    pg.add('text', 'ck', **tbox('clock', 12, 168, X(112) - X(12)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='--:--', txt_maxl=8)
+    pg.add('text', 'sc', **tbox('title', 142, 168, X(172) - X(142)), pco=c565(C['TXT2']), sta=0, picc=ids['BG_PL_DEF'], xcen=0, ycen=0, txt='', txt_maxl=4)
     pg.add('text', 'wd', **tbox('rowb', 200, 132, X(306) - X(200)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=40)
     pg.add('text', 'dt', **tbox('row', 180, 148, X(306) - X(180)), pco=c565(C['TXT2']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=40)
     pg.add('text', 'tp', **tbox('title', 250, 172, X(306) - X(250)), pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=8)
@@ -274,9 +272,6 @@ def build(p, meta, out_dir):
            wid=vh, hig=vh, minval=0, maxval=254, val=0)
     m = meta['smb']
     pg.add('text', 'vp', x=X(270), y=Y(230) - m['asc'], w=X(306) - X(270), h=m['h'], font=m['id'], pco=c565(C['TXT']), sta=0, picc=ids['BG_PL_DEF'], xcen=2, ycen=0, txt='', txt_maxl=6)
-    for z, name in ((0, 'tz'), (1, 'tr')):
-        pg.event(name, 'down', 'printh 7E 50\r\nprints tch0,2\r\nprints tch1,2\r\ntm0.en=1')
-        pg.event(name, 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch2,2\r\nprints tch3,2')
     # повзунки: гучність — відсоток показує сам екран, значення — в ESP32 (рух і відпускання)
     pg.event('vol', 'slide', 'vv.val=vol.val*100+127/254\r\ncovx vv.val,vp.txt,0,0\r\nvp.txt+="%"\r\nprinth 7E 56 01\r\nprints vol.val,2\r\nprinth 00')
     pg.event('vol', 'up', 'printh 7E 57 01\r\nprints vol.val,2\r\nprinth 00')
@@ -317,4 +312,15 @@ def build(p, meta, out_dir):
     # геометрія рядка спектра — прошивці, щоб гасити його при зміні режиму
     ids['SPX'] = SPX0; ids['SPTOP'] = SPB - SPH; ids['SPW'] = SPX1 - SPX0; ids['SPH'] = SPH
     ids['BGCOL'] = c565(C['BG']); ids['NBAR'] = NBAR
+
+    # Зони дотику додаємо НАОСТАНОК: при накладанні у Nextion виграє компонент із більшим
+    # номером. Коли вони лежали знизу, дотик забирали тексти й картинки над ними — і до
+    # прошивки не доходило нічого (а повзунок працював, бо він сам обробляє дотик).
+    # У режимі пульта рядок віддаємо повзунку перемотки командою «tsw tr,0».
+    pg.add('hotspot', 'tz', x=0, y=0, w=480, h=Y(182) - 8)
+    pg.add('hotspot', 'tr', x=0, y=Y(182) - 8, w=480, h=Y(207) - Y(182) + 8)
+    for z, name in ((0, 'tz'), (1, 'tr')):
+        pg.event(name, 'down', 'printh 7E 50\r\nprints tch0,2\r\nprints tch1,2\r\ntm0.en=1')
+        pg.event(name, 'up', 'tm0.en=0\r\nprinth 7E 52\r\nprints tch2,2\r\nprints tch3,2')
+
     return ids
