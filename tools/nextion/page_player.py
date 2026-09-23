@@ -196,11 +196,14 @@ def build(p, meta, out_dir):
     sw, sh = bar_imgs('SPEC', 4.5, 23, C['BG'], gfx.blend(C['SURF2'], C['ACC'], 90), C['ACC'])
     cw, ch = bar_imgs('CBAR', 3, 22, C['SURF'], C['ACC'], C['ACC'])
 
-    # ---- спектр: скільки смужок і де вони (малює сам екран, тому лише числа)
-    NBAR = 14                                    # стільки полос дає плагін VS1053
+    # ---- спектр: скільки смужок і де вони (малює прошивка заливками, тому лише числа)
+    #  Сім смужок, а не чотирнадцять: удвічі менше малювання, а виглядає навіть краще —
+    #  смужки вдвічі ширші й із рівними проміжками. Плагін VS1053 дає 14 частотних смуг,
+    #  прошивка бере з кожної пари гучнішу.
+    NBAR = 7
     SPX0, SPX1 = X(14), X(306)                   # ліва й права межі рядка
-    SPW = int((SPX1 - SPX0) / NBAR * 0.62)       # ширина смужки, решта — проміжок
-    SPSTEP = (SPX1 - SPX0) / NBAR
+    SPSTEP = round((SPX1 - SPX0) / NBAR)         # крок між смужками
+    SPW = round(SPSTEP * 0.70)                   # ширина смужки, решта — проміжок
     SPB, SPH = Y(206), Y(206) - Y(183)           # низ і повна висота
     CBX, CBY, CBW, CBH = X(276), Y(89), max(3, int(3 * K)), int(22 * K)   # риски в картці
 
@@ -287,10 +290,12 @@ def build(p, meta, out_dir):
     #  сам і не сперечався з прошивкою, вона вимикає їм дотик командою «tsw vol,0».
     #
     # геометрія рядка спектра й повзунків — прошивці (єдине джерело чисел — цей файл)
-    ids['SPX'] = SPX0; ids['SPTOP'] = SPB - SPH; ids['SPW'] = SPX1 - SPX0; ids['SPH'] = SPH
+    ids['SPX'] = SPX0 + (SPSTEP - SPW) // 2   # перша смужка посеред свого кроку
+    ids['SPX0'] = SPX0                        # ліва межа ряду (гасити ряд цілком)
+    ids['SPTOP'] = SPB - SPH; ids['SPW'] = SPX1 - SPX0; ids['SPH'] = SPH
     ids['BGCOL'] = c565(C['BG']); ids['NBAR'] = NBAR
     ids['SPBW'] = SPW                      # ширина однієї смужки
-    ids['SPSTEP'] = int(round(SPSTEP))     # крок між смужками
+    ids['SPSTEP'] = SPSTEP                 # крок між смужками
     ids['ACCCOL'] = c565(C['ACC'])         # колір заповнення
     ids['CBX'] = CBX; ids['CBY'] = CBY; ids['CBW'] = CBW; ids['CBH'] = CBH
     ids['CBSTEP'] = int(round(5 * K)); ids['SURFCOL'] = c565(C['SURF'])

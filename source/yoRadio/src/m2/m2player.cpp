@@ -164,7 +164,7 @@ void Player::show(){
   /*  Смужки малюємо різницею («підросла — долий, осіла — погаси»), тому пам'ять про їхню
       висоту після меню бреше: екран її стер, а ми думали, що вона стоїть. Звідси «після
       перелистування меню спектр частково ламається». Забуваємо й малюємо з нуля.  */
-  for(uint8_t i = 0; i < 14; i++) _spec[i] = 0;
+  for(uint8_t i = 0; i < NXPL_NBAR; i++) _spec[i] = 0;
   for(uint8_t k = 0; k < 5; k++) _cbShown[k] = 0;
   nx("page pl");
   /*  Повзунки веде прошивка (координати дотику приходять від «sendxy»), тому власний дотик
@@ -302,8 +302,8 @@ void Player::_row(bool force){
     char c[8];
     /*  Рядок зайняли обране чи пульт — стерти смужки одним прямокутником.  */
     if(m != 0){
-      nx("fill %d,%d,%d,%d,%u", NXPL_SPX, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
-      for(uint8_t i = 0; i < 14; i++) _spec[i] = 0;
+      nx("fill %d,%d,%d,%d,%u", NXPL_SPX0, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
+      for(uint8_t i = 0; i < NXPL_NBAR; i++) _spec[i] = 0;
     }
     for(uint8_t i = 0; i < 6; i++){
       snprintf(c, sizeof(c), "f%u", i); nxVis(c, m == 1);
@@ -366,7 +366,7 @@ static void barFill(int16_t x, int16_t top, int16_t w, int16_t h, uint8_t was, u
 
 /*  Риски в картці — ті самі п'ять смужок, що й у рядку спектра, лише нижчі.  */
 void Player::_cardBars(bool on){
-  static const uint8_t SRC[5] = { 2, 5, 8, 11, 13 };
+  static const uint8_t SRC[5] = { 0, 2, 3, 4, 6 };   /* риски картки — з тих самих семи смужок */
   for(uint8_t k = 0; k < 5; k++){
     const uint8_t v = on ? _spec[SRC[k]] : 0;
     if(v == _cbShown[k] && _bars == on) continue;
@@ -386,17 +386,27 @@ void Player::_spectrum(){
   const uint32_t dt = _specT0 ? now - _specT0 : 0;
   _specT0 = now;
   const uint8_t fall = (uint8_t)(dt * 3 / 40);
-  float sp[14];
-  if(radio::playing()) radio::bands(sp, 14); else for(uint8_t i = 0; i < 14; i++) sp[i] = 0;
+  /*  Плагін дає 14 частотних смуг, а малюємо сім: з кожної пари беремо гучнішу. Удвічі
+      менше малювання, а смужки вдвічі ширші — на вигляд навіть краще (пропозиція власника).
+      На звук це не впливає: читаємо з мікросхеми ті самі 14.  */
+  float raw[14], sp[NXPL_NBAR];
+  if(radio::playing()) radio::bands(raw, 14); else for(uint8_t i = 0; i < 14; i++) raw[i] = 0;
+  for(uint8_t i = 0; i < NXPL_NBAR; i++){
+    const float a = raw[i * 2], b = raw[i * 2 + 1];
+    sp[i] = a > b ? a : b;
+  }
   char c[8];
   /*  Балістика, як у справжнього аналізатора: вгору — не стрибком, а на половину відстані
-      за кадр, вниз — рівномірно. Стрибком угору рух виглядав смиканим (власник: «дёрганное»).
-      Ступінь 2 % лишаємо, щоб не слати зміни, яких не видно: 2 % висоти — це пів пікселя.  */
-  for(uint8_t i = 0; i < 14; i++){
+      за кадр, вниз — рівномірно.
+      Ступеня тут більше немає, і це важливо. Вона стояла **після** підйому, і виходило так:
+      смужка на 52, ціль 53, підйом дає 53 — ступінь округляє назад до 52, програма бачить
+      «не змінилось» і не малює. І так без кінця: смужка завмирала на одиницю нижче цілі саме
+      на піках, де ціль довго тримається поруч (власник: «на некоторых пиках замирание»).
+      Дрібні зміни й так не їдуть у шину: barFill мовчить, доки не змінилась висота в пікселях.  */
+  for(uint8_t i = 0; i < NXPL_NBAR; i++){
     uint8_t v = (uint8_t)(sp[i] * 100); if(v > 100) v = 100;
     if(v > _spec[i]) v = (uint8_t)(_spec[i] + (v - _spec[i] + 1) / 2);       /* угору — плавно */
     else             v = _spec[i] > fall ? (uint8_t)(_spec[i] - fall) : 0;   /* униз — рівно */
-    v = (uint8_t)(v / 2 * 2);
     if(v == _spec[i]) continue;
     barFill(NXPL_SPX + i * NXPL_SPSTEP, NXPL_SPTOP, NXPL_SPBW, NXPL_SPH,
             _spec[i], v, NXPL_BGCOL, NXPL_ACCCOL);

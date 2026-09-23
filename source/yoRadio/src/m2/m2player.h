@@ -6,6 +6,7 @@
     Розкладка й логіка зон дотику — з m2player.cpp ПОТУЖНОГО РАДІО.  */
 #ifndef m2player_h
 #define m2player_h
+#include "nxpl_ids.h"          /* NXPL_NBAR — скільки смужок спектра */
 #include "m2ui.h"
 
 namespace m2 {
@@ -32,7 +33,7 @@ class Player {
     uint32_t _sTop = 0, _sCard = 0, _sClock = 0, _sRow = 0, _sVol = 0, _sigT = 0, _specT = 0;
     uint8_t  _glow = 255, _mode = 255;
     uint16_t _volShown = 0xFFFF;
-    uint8_t  _spec[14] = { 0 };          /* наша копія висот смужок: падіння рахує екран */
+    uint8_t  _spec[NXPL_NBAR] = { 0 };   /* висоти смужок, які вже намальовані на екрані */
     uint32_t _specT0 = 0;
     int8_t   _lastSec = -1;
     /*  дотик  */
