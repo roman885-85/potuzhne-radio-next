@@ -10,6 +10,11 @@ volatile uint32_t g_m2Frames = 0;
 namespace m2 {
 
 bool flatBg = false;      /* стенд tools/nxhost вмикає, щоб пекти стрічку на рівному тлі */
+/*  Випікання стрічки меню: малюємо підписи, значки й картки, але **не значення** — стани
+    перемикачів, відсотки, назви мереж. Значення живі, а стрічка робиться на збірці: якби
+    вони туди потрапили, під пальцем було б видно вчорашнє, а на зупинці воно б стрибало на
+    справжнє. Порожнє місце читається як «ще не заповнено», і це чесніше.  */
+bool stripBake = false;
 
 Menu M;
 
@@ -237,7 +242,7 @@ void ListPage::_drawItem(Gfx& g, Item& it){
     case IT_NAV: {
       int16_t vw = 0;
       icon(g, IC_CHEV, x + w - 16, y + h / 2, C_TXT2, C_SURF);
-      if(it.text){
+      if(it.text && !stripBake){
         const char* v = it.text();
         if(v && *v) vw = g.text(x + w - 28, y + h / 2 + 4, v, F_SM, C_TXT2, AL_R, 120);
       }
@@ -246,10 +251,10 @@ void ListPage::_drawItem(Gfx& g, Item& it){
     }
     case IT_SWITCH:
       g.text(lx, y + h / 2 + 4, it.label, F_ROW, tc, AL_L, x + w - 64 - lx);
-      drawSwitch(g, x + w - 52, y + (h - 24) / 2, !it.ai ? (it.get && it.get() ? 1 : 0) : it.anim, en);
+      if(!stripBake) drawSwitch(g, x + w - 52, y + (h - 24) / 2, !it.ai ? (it.get && it.get() ? 1 : 0) : it.anim, en);
       break;
     case IT_INFO: {
-      const char* v = it.text ? it.text() : "";
+      const char* v = (it.text && !stripBake) ? it.text() : "";
       int16_t vw = g.text(x + w - 14, y + h / 2 + 4, v ? v : "", F_SM, C_TXT2, AL_R, 170);
       g.text(lx, y + h / 2 + 4, it.label, F_ROW, tc, AL_L, x + w - 22 - vw - lx);
       break;
@@ -277,9 +282,9 @@ void ListPage::_drawItem(Gfx& g, Item& it){
         icon(g, IC_PLAY, pr.x + pr.w / 2 + 1, pr.y + pr.h / 2, en ? C_ACC : C_TXT2, C_SURF2);
         vx = pr.x - 8;
       }
-      int16_t vw = g.text(vx, y + 22, b, F_ROWB, tc, AL_R);
+      int16_t vw = stripBake ? 0 : g.text(vx, y + 22, b, F_ROWB, tc, AL_R);
       g.text(x + 14, y + 22, it.label, F_ROW, tc, AL_L, vx - vw - x - 26);
-      float frac = (v - it.lo) / (float)(it.hi - it.lo);
+      float frac = stripBake ? 0 : (v - it.lo) / (float)(it.hi - it.lo);
       float zero = (it.lo < 0 && it.hi > 0) ? (0 - it.lo) / (float)(it.hi - it.lo) : -1;
       drawSlider(g, x + 12, y + 40, w - 24, frac, en, zero);
       break;

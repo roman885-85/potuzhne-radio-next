@@ -13,6 +13,7 @@ namespace m2 {
 
 class Player {
   public:
+    void barsInfo(char* out, size_t cap);   /* «nx bars»: геометрія й поточні висоти смужок */
     void show();                         /* сторінка «pl» на екран і все значення наново */
     void hide(){ _shown = false; }
     bool shown() const { return _shown; }
@@ -33,6 +34,7 @@ class Player {
     uint32_t _sTop = 0, _sCard = 0, _sClock = 0, _sRow = 0, _sVol = 0, _sigT = 0, _specT = 0;
     uint8_t  _glow = 255, _mode = 255;
     uint16_t _volShown = 0xFFFF;
+    uint32_t _volAnimT = 0;              /* коли ручка гучності робила крок */
     uint8_t  _spec[NXPL_NBAR] = { 0 };   /* висоти смужок, які вже намальовані на екрані */
     uint32_t _specT0 = 0;
     int8_t   _lastSec = -1;

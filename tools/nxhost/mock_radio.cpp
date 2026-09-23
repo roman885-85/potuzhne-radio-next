@@ -49,6 +49,7 @@ bool        weatherHave(){ return weather; }
 float       weatherTemp(){ return temp; }
 uint8_t     weatherIcon(){ return wicon; }
 int         rssi(){ const char* e = getenv("NX_RSSI"); return e ? atoi(e) : mock::rssi; }
+bool        specOff = false;              /* на стенді спектр завжди увімкнений */
 void        bands(float* out, uint8_t n){ for(uint8_t i = 0; i < n; i++) out[i] = mock::bands[i % 32]; }
 const char* version(){ return "0.1.0"; }
 bool        otaAvailable(){ return otaAvail; }

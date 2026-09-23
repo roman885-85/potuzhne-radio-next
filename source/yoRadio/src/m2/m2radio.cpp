@@ -205,7 +205,9 @@ void spectrumPoll(){
   if(specOff){ saGot = 0; return; }
   static uint32_t last = 0;
   const uint32_t now = millis();
-  if(now - last < 66) return;                  /* 15 разів за секунду: малюємо 25, спад свій */
+  /*  10 разів за секунду. Кожне читання — 15 звертань до мікросхеми спільною шиною, і саме
+      вони чіпляють звук; малюванню цього досить, бо рух між читаннями прошивка добирає сама.  */
+  if(now - last < 100) return;
   if(!player.ready()) return;                  /* зайнята — спробуємо наступним обертом */
   last = now;
   saGot = player.readSpectrum(saCur);
@@ -236,9 +238,11 @@ void bands(float* out, uint8_t n){
   if(want > ref) ref += (want - ref) * 0.05f;
   else           ref -= 0.05f;
   if(ref < 8) ref = 8;
-  const float lo = ref - 10;                   /* вікно 10 кроків = 30 дБ */
+  /*  Вікно 14 кроків (42 дБ), а не 10: при 30 дБ усе, що тихіше за пік на цю різницю,
+      лягало в нуль — власник бачив десять смужок із чотирнадцяти.  */
+  const float lo = ref - 14;
   for(uint8_t i = 0; i < n; i++){
-    float v = (i < got && i < VS1053B_SA_MAX_BANDS) ? (tv[i] - lo) / 10.0f : 0;
+    float v = (i < got && i < VS1053B_SA_MAX_BANDS) ? (tv[i] - lo) / 14.0f : 0;
     out[i] = v < 0 ? 0 : v > 1 ? 1 : v;
   }
 }

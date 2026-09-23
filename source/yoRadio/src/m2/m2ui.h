@@ -29,6 +29,7 @@ extern volatile uint32_t g_m2Frames;
 namespace m2 {
 
 extern bool flatBg;       /* рівне тло замість переходу — для випікання стрічки меню */
+extern bool stripBake;    /* стрічка: без значень — вони живі, а стрічка робиться на збірці */
 
 class Page {
   public:
@@ -56,6 +57,9 @@ class Page {
     virtual void back();                              /* типово — на сторінку вище */
     virtual bool keepOpen(){ return false; }          /* не закривати меню за хвилину без дотиків */
     virtual bool scrollable(){ return true; }
+    /*  Ключ стрічки: сторінка з таким іменем спечена картинкою в .tft (tools/nextion/strip.py),
+        і поки палець веде, екран показує шматок тієї картинки замість сотень команд малювання.  */
+    virtual const char* stripKey(){ return nullptr; }
     /*  прокрутка зупиняється рівно на рядку, з пружиною (як у старому списку): крок у пікселях, 0 — де зупинилась  */
     virtual int16_t snapStep(){ return 0; }
     /*  Службове (консоль «items»): перелік елементів для автоматичної перевірки.  */
@@ -112,7 +116,9 @@ Item iCustom(int16_t h, void (*draw)(Gfx&, int16_t, int16_t, int16_t, int16_t));
 
 class ListPage : public Page {
   public:
-    ListPage(const char* title, Item* items, uint8_t n) : _title(title), _it(items), _n(n) {}
+    ListPage(const char* title, Item* items, uint8_t n, const char* strip = nullptr)
+      : _title(title), _it(items), _n(n), _strip(strip) {}
+    const char* stripKey() override { return _strip; }
     const char* title() override { return _title; }
     void enter() override;
     void tick(uint32_t now) override;
@@ -138,6 +144,8 @@ class ListPage : public Page {
     void _drawItem(Gfx& g, Item& it);
     uint32_t _sigOf(Item& it);
     int32_t _sliderAt(const Item& it, int16_t x) const;
+  protected:
+    const char* _strip = nullptr;
 };
 
 /*  ---------- спільні елементи (для власних сторінок) ---------- */

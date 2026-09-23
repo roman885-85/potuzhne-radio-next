@@ -1,14 +1,18 @@
 #!/bin/bash
-# check.sh — повний прогін системи одним рухом: самоперевірка радіо, чи йдуть секунди,
-# чи ворушиться спектр. Друкує підсумок і повертає 1, якщо щось зламано.
+# check.sh — повний прогін системи одним рухом, без людських очей.
 #
-# Сенс: не «подивись на екран», а перевірка числами, яку можна повторити будь-коли.
-# Говоримо з радіо по мережі (tools/device/rc.py), а не через USB: послідовний порт один,
-# і дві перевірки одночасно псували одна одну — звідси була половина хибних «зламано».
+# Сенс: не «подивись на екран», а перевірка числами, яку можна повторити будь-коли. Усе, що
+# раніше доводилось питати у власника («скільки смужок видно», «чи їде ручка гучності»),
+# перевіряється тут виміром із самого радіо.
+#
+# Говоримо по мережі (rc.py), а не через USB: порт один, і дві перевірки одночасно псували
+# одна одну — звідси була половина хибних «зламано».
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"; PY="$ROOT/build/venv/bin/python"
 cd "$ROOT"
 RC="$PY tools/device/rc.py"
+IP="${RADIO_IP:-192.168.1.158}"
 bad=0
+say(){ printf '%-26s %s  %s\n' "$1" "$2" "$3"; [ "$2" = "ЗЛАМАНО" ] && bad=1; return 0; }
 
 echo "=== 1. самоперевірка радіо ==="
 OUT="$($RC 'nx test' 2>&1 | tr -d '\000' | grep -a '##NXT#' | sed 's/.*##NXT#[[:space:]]*//')"
@@ -19,20 +23,74 @@ echo "$OUT" | grep -q "ЗЛАМАНО" && bad=1
 echo
 echo "=== 2. секунди йдуть? ==="
 sec(){ $RC 'nx dump' 2>&1 | tr -d '\000' | grep -a 'sc\.txt' | sed 's/.*= *//' | tr -d ' \r'; }
-A="$(sec)"
-sleep 4
-B="$(sec)"
-if [ -n "$A" ] && [ "$A" != "$B" ]; then echo "ГАРАЗД: $A → $B"; else echo "ЗЛАМАНО: $A → $B (стоять)"; bad=1; fi
+A="$(sec)"; sleep 4; B="$(sec)"
+[ -n "$A" ] && [ "$A" != "$B" ] && say "секунди" ГАРАЗД "$A → $B" || say "секунди" ЗЛАМАНО "$A → $B (стоять)"
 
 echo
-echo "=== 3. спектр ворушиться? ==="
-#  Плагін VS1053 дає смуги лише під час декодування: у тиші всі нулі, і це не поломка.
-$RC 'play' >/dev/null 2>&1
-sleep 6
-V="$($RC 'nx spec' 'nx spec' 'nx spec' 2>&1 | tr -d '\000' | grep -a 'смуг' | sed 's/.*смуг [0-9]*: *//')"
-echo "$V" | sed 's/^/  /'
-if [ "$(echo "$V" | sort -u | wc -l)" -gt 1 ]; then echo "ГАРАЗД: значення різні"
-else echo "УВАГА: значення однакові (тиша чи не читається)"; fi
+echo "=== 3. спектр: чи живі всі смужки ==="
+#  Беремо кілька знімків висот і рахуємо, скільки смужок бодай раз ворухнулось. Саме тут
+#  колись ховалось «бачу десять із чотирнадцяти»: решта стояла на нулі й була невидима.
+$RC 'play' >/dev/null 2>&1; sleep 6
+$PY - "$IP" <<'PY'
+import subprocess, sys, time, re
+def bars():
+    o = subprocess.run(['build/venv/bin/python', 'tools/device/rc.py', 'nx bars'],
+                       capture_output=True, text=True).stdout
+    m = re.search(r'висоти:([0-9 ]+)', o)
+    return [int(x) for x in m.group(1).split()] if m else []
+snaps = []
+for i in range(6):
+    b = bars()
+    if b: snaps.append(b)
+    time.sleep(0.6)
+if not snaps:
+    print('смужки                     ЗЛАМАНО  радіо не відповіло на «nx bars»'); sys.exit(1)
+n = len(snaps[0])
+moved = sum(1 for i in range(n) if len({s[i] for s in snaps if i < len(s)}) > 1)
+mx = max(max(s) for s in snaps)
+print('%-26s %s  %d з %d ворухнулись, найвища %d%%' %
+      ('смужки', 'ГАРАЗД' if moved >= n - 1 else 'ЗЛАМАНО', moved, n, mx))
+sys.exit(0 if moved >= n - 1 else 1)
+PY
+[ $? -ne 0 ] && bad=1
+
+echo
+echo "=== 4. ручка гучності доїжджає? ==="
+#  Ставимо гучність стрибком і дивимось, чи з'являються проміжні значення на самому екрані.
+#  Якщо анімації немає, друге зняття вже дорівнює цілі.
+$PY - <<'PY'
+import subprocess, re, sys, time
+def rc(*cmds):
+    return subprocess.run(['build/venv/bin/python', 'tools/device/rc.py', *cmds],
+                          capture_output=True, text=True).stdout
+def volval():
+    o = rc('nx cmd get vol.val')
+    m = re.search(r'5 байт: q(.*)', o)
+    if not m: return None
+    b = m.group(1); out = []; i = 0
+    while i < len(b):
+        if b[i:i+2] == '\\x': out.append(int(b[i+2:i+4], 16)); i += 4
+        else: out.append(ord(b[i])); i += 1
+    return out[0] | (out[1] << 8) if len(out) >= 2 else None
+rc('vol 5'); time.sleep(1.2)
+start = volval()
+rc('vol 40')
+seen = []
+for i in range(8):
+    v = volval()
+    if v is not None: seen.append(v)
+    time.sleep(0.05)
+uniq = sorted(set(seen))
+ok = len(uniq) > 2
+print('%-26s %s  від %s через %s' % ('ручка гучності', 'ГАРАЗД' if ok else 'ЗЛАМАНО', start, uniq[:6]))
+sys.exit(0 if ok else 1)
+PY
+[ $? -ne 0 ] && bad=1
+
+echo
+echo "=== 5. радіо видно програмам? ==="
+H="$(curl -s -m 5 http://$IP/api/hello)"
+echo "$H" | grep -q '"potuzhne":1' && say "/api/hello" ГАРАЗД "$(echo "$H" | cut -c1-70)" || say "/api/hello" ЗЛАМАНО "${H:-немає відповіді}"
 
 echo
 [ $bad -eq 0 ] && echo "ПІДСУМОК: усе гаразд" || echo "ПІДСУМОК: є зламане"

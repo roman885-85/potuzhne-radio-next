@@ -112,6 +112,7 @@ int main(int argc, char** argv){
     Page* pg = nullptr; int sc = 0;
     for(auto& e : pages){ size_t l = strlen(e.n); if(!strncmp(nm, e.n, l) && (nm[l] == 0 || nm[l] == ':')){ pg = e.p; if(nm[l] == ':') sc = atoi(nm + l + 1); } }
     if(getenv("NX_FLATBG")) m2::flatBg = true;   /* стрічка меню: тло рівне, без переходу вгорі */
+    if(getenv("NX_FLATBG")) m2::stripBake = true;  /* і без живих значень: вони малюються на ходу */
     if(!strncmp(nm, "kbd", 3)){ static char buf[65] = "vidrodzhennia"; kbdOpen(buf, sizeof(buf), true, "Пароль: my_home", nullptr); }
     else if(!pg){ fprintf(stderr, "немає сторінки %s\n", nm); return 1; }
     else if(getenv("NX_DEEP")){ M.open(&pgPult); for(int i = 0; i < 20; i++){ M.render(); M.loop(); s_ms += 20; } M.push(pg); }

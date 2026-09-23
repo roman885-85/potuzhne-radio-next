@@ -8,6 +8,7 @@
 #include "../core/telnet.h"
 #include "../core/player.h"
 #include "../m2/m2radio.h"     /* спектр: вимикач для перевірки звуку */
+#include "../m2/m2player.h"     /* «nx bars»: геометрія й висоти смужок */
 #include "yoBt.h"
 namespace m2 { extern uint32_t nxZoneCnt[7]; }
 void nxSplashDemo(uint32_t ms);                  /* displays/nextion.cpp: показати заставку */   /* лічильники команд по блоках (m2player.cpp) */
@@ -381,6 +382,11 @@ namespace NxLink {
       int ms = 5000; sscanf(a + 6, "%d", &ms);
       nxSplashDemo((uint32_t)(ms > 0 && ms < 60000 ? ms : 5000));
       telnet.printf(cid, "##NX#\tзаставка на %d мс\n> ", ms);
+      return true;
+    }
+    if (!strcmp(a, "bars")) {
+      char b[220]; m2::P.barsInfo(b, sizeof b);
+      telnet.printf(cid, "##NX#\t%s\n> ", b);
       return true;
     }
     if (!strcmp(a, "touches")) {

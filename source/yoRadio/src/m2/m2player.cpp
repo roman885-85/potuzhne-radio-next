@@ -342,10 +342,16 @@ void Player::_row(bool force){
 void Player::_vol(bool force){
   struct Z { Z(uint8_t z){ nxZone = z; } ~Z(){ nxZone = 0; } } _z(5);
   const uint16_t want = _volDrag >= 0 ? (uint16_t)_volDrag : radio::volume();
-  if(force) _volShown = want;
+  const uint32_t now = millis();
+  if(force){ _volShown = want; _volAnimT = now; }
   else if(want != _volShown){
+    /*  Крок прив'язаний до часу, а не до проходу. Спершу я рухав ручку на третину відстані
+        за виклик — і не побачив анімації взагалі: гучність малюється кожним проходом задачі
+        екрана, тобто понад сто разів за секунду, і весь шлях укладався в 30 мс.  */
+    if(now - _volAnimT < 30) return;
+    _volAnimT = now;
     const int32_t d = (int32_t)want - (int32_t)_volShown;
-    const int32_t step = d > 0 ? (d + 2) / 3 : (d - 2) / 3;   /* третина відстані, але не нуль */
+    const int32_t step = d > 0 ? (d + 3) / 4 : (d - 3) / 4;   /* чверть відстані за 30 мс */
     _volShown = (uint16_t)((int32_t)_volShown + step);
   }else return;
   if(_hold[0] && (int32_t)(millis() - _hold[0]) < 0) return;   /* повзунок веде палець */
@@ -440,6 +446,15 @@ void Player::render(){
       запізненням». Малюємо різницею, тому кадр коштує кілька заливок.  */
   if(!radio::specOff && now - _specT >= 40){ _specT = now; _spectrum(); }
   _sec();
+}
+
+/*  «nx bars» — скільки смужок, де вони і які зараз. Інакше «бачу десять із чотирнадцяти»
+    не перевірити: знімок екрана Nextion не віддає, а «nx shot» ловить лише один кадр.  */
+void Player::barsInfo(char* out, size_t cap){
+  int k = snprintf(out, cap, "смужок %d, x від %d крок %d ширина %d, висоти:",
+                   (int)NXPL_NBAR, (int)NXPL_SPX, (int)NXPL_SPSTEP, (int)NXPL_SPBW);
+  for(uint8_t i = 0; i < NXPL_NBAR && k < (int)cap - 5; i++)
+    k += snprintf(out + k, cap - k, " %u", (unsigned)_spec[i]);
 }
 
 /*  ---------- дотики (головний цикл) ---------- */
