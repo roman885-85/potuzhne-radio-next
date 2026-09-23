@@ -91,6 +91,12 @@ static void nxSet(const char* comp, const char* att, long v){
   nx("%s.%s=%ld", comp, att, v);
 }
 
+/*  Гасимо не заливкою, а шматком самого тла сторінки: тло там із дизерингом (приблизно
+    кожна сьома точка іншого відтінку), і рівна заливка лишала на місці смужок помітні
+    прямокутники, поки їх не перекриє рух (власник: «артефакти при початкових позиціях»).
+    `xpic` бере ту саму область із фонової картинки — збіг точний і коштує так само.  */
+static uint16_t barBgPic = 0;          /* картинка тла сторінки: міняється з кольором світіння */
+
 /*  ---------- стан ---------- */
 static bool sermonOn(){ return radio::sermonOn(); }
 
@@ -166,6 +172,7 @@ void Player::show(){
       перелистування меню спектр частково ламається». Забуваємо й малюємо з нуля.  */
   for(uint8_t i = 0; i < NXPL_NBAR; i++) _spec[i] = 0;
   for(uint8_t k = 0; k < 5; k++) _cbShown[k] = 0;
+  barBgPic = 0;                        /* тло дізнаємось у _top разом із кольором світіння */
   nx("page pl");
   /*  Повзунки веде прошивка (координати дотику приходять від «sendxy»), тому власний дотик
       їм вимикаємо — інакше екран пересував би повзунок сам і сперечався з прошивкою.  */
@@ -193,6 +200,7 @@ void Player::_top(bool force){
   if(gi != _glow){
     _glow = gi;
     const uint16_t bg = NXPL_BG_PL_0 + gi;
+    barBgPic = bg;                     /* цим же тлом гасимо смужки спектра */
     nxSet("pl", "pic", bg);
     for(const char* c : { "nm", "ck", "sc", "wd", "dt", "tp", "tpo", "tdu", "vp" }) nxSet(c, "picc", bg);
     nx("ref 0");
@@ -302,7 +310,9 @@ void Player::_row(bool force){
     char c[8];
     /*  Рядок зайняли обране чи пульт — стерти смужки одним прямокутником.  */
     if(m != 0){
-      nx("fill %d,%d,%d,%d,%u", NXPL_SPX0, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
+      if(barBgPic) nx("xpic %d,%d,%d,%d,%d,%d,%u", NXPL_SPX0, NXPL_SPTOP, NXPL_SPW, NXPL_SPH,
+                      NXPL_SPX0, NXPL_SPTOP, barBgPic);
+      else nx("fill %d,%d,%d,%d,%u", NXPL_SPX0, NXPL_SPTOP, NXPL_SPW, NXPL_SPH, NXPL_BGCOL);
       for(uint8_t i = 0; i < NXPL_NBAR; i++) _spec[i] = 0;
     }
     for(uint8_t i = 0; i < 6; i++){
@@ -375,8 +385,10 @@ static void barFill(int16_t x, int16_t top, int16_t w, int16_t h, uint8_t was, u
   const int16_t a = (int16_t)((int32_t)was * h / 100);
   const int16_t b = (int16_t)((int32_t)now * h / 100);
   if(a == b) return;
-  if(b > a) nx("fill %d,%d,%d,%d,%u", x, top + h - b, w, b - a, fg);
-  else      nx("fill %d,%d,%d,%d,%u", x, top + h - a, w, a - b, bg);
+  if(b > a){ nx("fill %d,%d,%d,%d,%u", x, top + h - b, w, b - a, fg); return; }
+  const int16_t y = top + h - a, hh = a - b;
+  if(barBgPic) nx("xpic %d,%d,%d,%d,%d,%d,%u", x, y, w, hh, x, y, barBgPic);
+  else         nx("fill %d,%d,%d,%d,%u", x, y, w, hh, bg);
 }
 
 /*  Риски в картці — ті самі п'ять смужок, що й у рядку спектра, лише нижчі.  */
