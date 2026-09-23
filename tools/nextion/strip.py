@@ -79,5 +79,25 @@ def build(page, step=STEPV, maxv=1600):
     return p, h
 
 
+def chunks(page, path=None, h=None, maxh=320):
+    """Розрізати стрічку на шматки не вищі за екран.
+
+    Картинка в Nextion не може бути вищою за екран — перевірено дорогою ціною: атлас 480×852
+    давав обрізані значки на залізі, хоч на Mac малювався цілком. Вікно вмісту — 267 точок,
+    тож при шматках по 320 воно завжди лягає щонайбільше у два: дві команди `xpic` на кадр.
+    """
+    out = os.path.join(ROOT, 'build', 'nx', 'strips', page)
+    os.makedirs(out, exist_ok=True)
+    im = Image.open(path or os.path.join(ROOT, 'build', 'nx', 'strips', '%s.png' % page)).convert('RGB')
+    files = []
+    for i in range(0, (im.height + maxh - 1) // maxh):
+        y = i * maxh
+        part = Image.new('RGB', (480, maxh), (0, 0, 0))
+        part.paste(im.crop((0, y, 480, min(y + maxh, im.height))), (0, 0))
+        f = os.path.join(out, '%02d.png' % i)
+        part.save(f); files.append(f)
+    return files, im.height
+
+
 if __name__ == '__main__':
     build(sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else STEPV)
