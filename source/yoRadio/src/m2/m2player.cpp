@@ -366,7 +366,9 @@ static void barFill(int16_t x, int16_t top, int16_t w, int16_t h, uint8_t was, u
 
 /*  Риски в картці — ті самі п'ять смужок, що й у рядку спектра, лише нижчі.  */
 void Player::_cardBars(bool on){
-  static const uint8_t SRC[5] = { 0, 2, 3, 4, 6 };   /* риски картки — з тих самих семи смужок */
+  /*  риски картки — п'ять смужок, рівномірно взятих із ряду спектра  */
+  static const uint8_t SRC[5] = { NXPL_NBAR / 10, NXPL_NBAR * 3 / 10, NXPL_NBAR / 2,
+                                  NXPL_NBAR * 7 / 10, NXPL_NBAR * 9 / 10 };
   for(uint8_t k = 0; k < 5; k++){
     const uint8_t v = on ? _spec[SRC[k]] : 0;
     if(v == _cbShown[k] && _bars == on) continue;
@@ -386,14 +388,16 @@ void Player::_spectrum(){
   const uint32_t dt = _specT0 ? now - _specT0 : 0;
   _specT0 = now;
   const uint8_t fall = (uint8_t)(dt * 3 / 40);
-  /*  Плагін дає 14 частотних смуг, а малюємо сім: з кожної пари беремо гучнішу. Удвічі
-      менше малювання, а смужки вдвічі ширші — на вигляд навіть краще (пропозиція власника).
-      На звук це не впливає: читаємо з мікросхеми ті самі 14.  */
+  /*  Мікросхема дає 14 частотних смуг. Малюємо NXPL_NBAR штук: коли їх менше, складаємо
+      сусідні в групи й беремо з групи гучнішу. Кількість — один параметр у page_player.py,
+      міняти можна без переписування цього коду.  */
   float raw[14], sp[NXPL_NBAR];
   if(radio::playing()) radio::bands(raw, 14); else for(uint8_t i = 0; i < 14; i++) raw[i] = 0;
+  const uint8_t grp = 14 / NXPL_NBAR;
   for(uint8_t i = 0; i < NXPL_NBAR; i++){
-    const float a = raw[i * 2], b = raw[i * 2 + 1];
-    sp[i] = a > b ? a : b;
+    float m = 0;
+    for(uint8_t k = 0; k < grp; k++){ const float v = raw[i * grp + k]; if(v > m) m = v; }
+    sp[i] = m;
   }
   char c[8];
   /*  Балістика, як у справжнього аналізатора: вгору — не стрибком, а на половину відстані
