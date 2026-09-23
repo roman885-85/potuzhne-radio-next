@@ -7,9 +7,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"; cd "$ROOT"
 BIN="$ROOT/firmware/PotuzhneRadio-Nextion-update.bin"
 [ -f "$BIN" ] || { echo "немає $BIN — спершу firmware/rebuild.sh"; exit 1; }
 cp "$BIN" "$ROOT/build/nextion-out/dev-fw.bin"
-#  Качаємо з роздачі на Mac: без HTTPS радіо вистачає пам'яті, і не треба щоразу
-#  вивантажувати 2 МБ у випуск GitHub.  Радіо не бачить Mac → DEPLOY_SRC=gh.
-if [ "$DEPLOY_SRC" = "gh" ]; then
+#  Через GitHub, а не з роздачі на Mac: оновлювач (окремий розділ) до Mac не достукується —
+#  «прошивка: HTTP -1 (connection refused)», хоча основна прошивка з того самого сервера
+#  качає без питань. Виграш від локальної роздачі тут малий (2 МБ), тож не воюємо.
+#  Хто захоче спробувати локально — DEPLOY_SRC=lan.
+if [ "$DEPLOY_SRC" != "lan" ]; then
   gh release view dev-screen >/dev/null 2>&1 || gh release create dev-screen --prerelease --latest=false \
      --title "Екран: робоча збірка (тимчасово)" --notes "Проміжні збірки для перевірки; не для встановлення." >/dev/null 2>&1 || true
   gh release upload dev-screen "$ROOT/build/nextion-out/dev-fw.bin" --clobber >/dev/null

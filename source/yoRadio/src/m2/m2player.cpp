@@ -345,14 +345,18 @@ void Player::_vol(bool force){
 /*  Смужки опускає сам екран (таймер tm2, по 3 за кадр 40 мс). Звідси йде тільки підйом:
     тримаємо в пам'яті ту саму модель падіння й шлемо d<k>, лише коли стало гучніше.
     Через це в тиші по шині не йде нічого.  */
-/*  Одна смужка: дві заливки — темний «порожній» верх і яскравий низ за висотою v (0..100).
-    Малюємо заливками, а не компонентом-смужкою: у Progress bar кольори задаються лише в
-    редакторі, а він їх не переносить — на екрані смужки виходили невидимі. Тут колір наш,
-    і це та сама механіка, якою малюється все меню.  */
-static void barFill(int16_t x, int16_t top, int16_t w, int16_t h, uint8_t v, uint16_t bg, uint16_t fg){
-  const int16_t fh = (int16_t)((int32_t)v * h / 100);
-  if(fh < h) nx("fill %d,%d,%d,%d,%u", x, top, w, h - fh, bg);
-  if(fh > 0) nx("fill %d,%d,%d,%d,%u", x, top + h - fh, w, fh, fg);
+/*  Одна смужка. Малюємо заливками, а не компонентом-смужкою: у Progress bar кольори
+    задаються лише в редакторі, а він їх не переносить — на екрані смужки виходили невидимі.
+    Тут колір наш, і це та сама механіка, якою малюється все меню.
+    Перемальовуємо лише те, що змінилось: смужка підросла — заливаємо яскравим новий шматок,
+    осіла — гасимо звільнений. Виходить одна заливка на смужку замість двох.  */
+static void barFill(int16_t x, int16_t top, int16_t w, int16_t h, uint8_t was, uint8_t now,
+                    uint16_t bg, uint16_t fg){
+  const int16_t a = (int16_t)((int32_t)was * h / 100);
+  const int16_t b = (int16_t)((int32_t)now * h / 100);
+  if(a == b) return;
+  if(b > a) nx("fill %d,%d,%d,%d,%u", x, top + h - b, w, b - a, fg);
+  else      nx("fill %d,%d,%d,%d,%u", x, top + h - a, w, a - b, bg);
 }
 
 /*  Риски в картці — ті самі п'ять смужок, що й у рядку спектра, лише нижчі.  */
@@ -361,9 +365,9 @@ void Player::_cardBars(bool on){
   for(uint8_t k = 0; k < 5; k++){
     const uint8_t v = on ? _spec[SRC[k]] : 0;
     if(v == _cbShown[k] && _bars == on) continue;
-    _cbShown[k] = v;
     barFill(NXPL_CBX + k * NXPL_CBSTEP, NXPL_CBY - NXPL_CBH, NXPL_CBW, NXPL_CBH,
-            v, NXPL_SURFCOL, NXPL_ACCCOL);
+            _cbShown[k], v, NXPL_SURFCOL, NXPL_ACCCOL);
+    _cbShown[k] = v;
   }
   _bars = on;
 }
@@ -388,8 +392,9 @@ void Player::_spectrum(){
     if(v < _spec[i]) v = _spec[i] > fall ? (uint8_t)(_spec[i] - fall) : 0;   /* униз — плавно */
     v = (uint8_t)(v / 4 * 4);
     if(v == _spec[i]) continue;
+    barFill(NXPL_SPX + i * NXPL_SPSTEP, NXPL_SPTOP, NXPL_SPBW, NXPL_SPH,
+            _spec[i], v, NXPL_BGCOL, NXPL_ACCCOL);
     _spec[i] = v;
-    barFill(NXPL_SPX + i * NXPL_SPSTEP, NXPL_SPTOP, NXPL_SPBW, NXPL_SPH, v, NXPL_BGCOL, NXPL_ACCCOL);
   }
   if(_bars) _cardBars(true);
 }
