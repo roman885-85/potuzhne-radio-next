@@ -662,8 +662,8 @@ Empty/loading state: `box(10, 40, 300, 110, r12)` C_SURF; IC_CROSS at (160, 72) 
 («нема мережі», «нема пам'яті», «задача не створилась») or «список порожній» at (160,106) and
 «торкніться, щоб завантажити» at (160,128) `F_SM` C_ACC — tap on the card retries.
 On entry, when a sermon is playing, the page scrolls so that row is centred (`6 + 52·i − 100 + 26`).
-Tap row → play that sermon (remote MP3 from the church site) and close the menu. Data: `SERMON_SITE =
-https://site.roman-home.keenetic.pro` `/api/sermons`, up to 900 items kept (≈555 on the site).
+Tap row → play that sermon (remote MP3 from the church site) and close the menu. Data: `SERMON_SITE` (the sermon site address, configurable on the radio
+page) + `/api/sermons`, up to 900 items kept (≈555 on the site).
 
 ### 5.4 «Еквалайзер» (`EqPage`, not scrollable)
 
